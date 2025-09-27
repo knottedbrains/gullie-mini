@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { initialTasks } from '../data/tasks'
 import { services } from '../data/services'
 import type {
   CategoriesConfirmedDetail,
@@ -13,6 +12,10 @@ const SERVICE_STORAGE_KEY = 'voice-relocation:selected-services'
 const TASK_STORAGE_KEY = 'voice-relocation:timeline-tasks'
 
 const serviceIds = services.map((service) => service.id)
+
+function dedupeServices(ids: ServiceId[]) {
+  return Array.from(new Set(ids.filter((id) => serviceIds.includes(id))))
+}
 
 function loadFromStorage<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') {
@@ -56,10 +59,12 @@ export interface UseTimelineStateResult {
 
 export function useTimelineState(): UseTimelineStateResult {
   const [selectedServices, setSelectedServicesState] = useState<ServiceId[]>(() =>
-    loadFromStorage<ServiceId[]>(SERVICE_STORAGE_KEY, serviceIds),
+    dedupeServices(loadFromStorage<ServiceId[]>(SERVICE_STORAGE_KEY, [])),
   )
   const [tasks, setTasks] = useState<TimelineTask[]>(() =>
-    loadFromStorage<TimelineTask[]>(TASK_STORAGE_KEY, initialTasks),
+    loadFromStorage<TimelineTask[]>(TASK_STORAGE_KEY, []).filter((task) =>
+      serviceIds.includes(task.serviceId),
+    ),
   )
 
   useEffect(() => {
@@ -109,12 +114,12 @@ export function useTimelineState(): UseTimelineStateResult {
       const next = prev.includes(serviceId)
         ? prev.filter((id) => id !== serviceId)
         : [...prev, serviceId]
-      return next.length ? next : serviceIds
+      return dedupeServices(next)
     })
   }, [])
 
   const setSelectedServices = useCallback((next: ServiceId[]) => {
-    setSelectedServicesState(next.length ? next : serviceIds)
+    setSelectedServicesState(dedupeServices(next))
   }, [])
 
   const upsertTask = useCallback((task: TimelineTask) => {

@@ -77,6 +77,8 @@ function App() {
     updateTaskStatus,
   })
 
+  const showTimeline = selectedServices.length > 0 || tasks.length > 0
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-sky-50 to-slate-100">
       <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-12 px-6 pb-28 pt-16">
@@ -84,10 +86,10 @@ function App() {
           <div className="relative z-10 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
             <div className="max-w-2xl">
               <h1 className="text-4xl font-semibold text-slate-950 sm:text-5xl">
-                Relocation timeline, tuned for real-time voice guidance.
+                gullie-mini
               </h1>
               <p className="mt-4 text-lg text-slate-600">
-                Track every service milestone, hear instant status changes, and keep your family ready for move day.
+                move from one city to another
               </p>
             </div>
             <div className="rounded-3xl border border-slate-200 bg-white/60 px-5 py-4 text-sm text-slate-500 shadow-sm backdrop-blur">
@@ -99,32 +101,44 @@ function App() {
             className="absolute inset-y-0 right-0 hidden w-1/3 bg-gradient-to-br from-sky-100/40 via-transparent to-transparent md:block"
           />
         </section>
+        {showTimeline ? (
+          <>
+            <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+              <div className="flex flex-col gap-3 pb-6">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Services
+                </span>
+                <h2 className="text-2xl font-semibold text-slate-900">Focus the timeline by service</h2>
+                <p className="max-w-2xl text-sm text-slate-500">
+                  Toggle the services you want to review. The assistant automatically syncs these selections when it confirms changes.
+                </p>
+              </div>
+              <ServiceSelector
+                services={services}
+                selected={selectedServices}
+                onToggle={toggleService}
+              />
+            </section>
 
-        <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-          <div className="flex flex-col gap-3 pb-6">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Services
-            </span>
-            <h2 className="text-2xl font-semibold text-slate-900">Focus the timeline by service</h2>
-            <p className="max-w-2xl text-sm text-slate-500">
-              Toggle the services you want to review. The assistant automatically syncs these selections when it confirms changes.
-            </p>
-          </div>
-          <ServiceSelector
-            services={services}
-            selected={selectedServices}
-            onToggle={toggleService}
-          />
-        </section>
-
-        <section className="relative">
-          <div className="pointer-events-none absolute -top-12 left-1/2 h-32 w-full -translate-x-1/2 rounded-full bg-sky-100 blur-3xl" />
-          <TimelineBoard
-            tasks={visibleTasks}
-            selectedServices={selectedServices}
-            highlightedTaskIds={highlightedTaskIds}
-          />
-        </section>
+            <section className="relative">
+              <div className="pointer-events-none absolute -top-12 left-1/2 h-32 w-full -translate-x-1/2 rounded-full bg-sky-100 blur-3xl" />
+              <TimelineBoard
+                tasks={visibleTasks}
+                selectedServices={selectedServices}
+                highlightedTaskIds={highlightedTaskIds}
+              />
+            </section>
+          </>
+          ) : (
+          <section className="rounded-3xl border border-dashed border-slate-300 bg-white/70 p-10 text-center shadow-sm">
+            <div className="mx-auto max-w-xl space-y-4">
+              <h2 className="text-2xl font-semibold text-slate-900">Your timeline is waiting</h2>
+              <p className="text-sm text-slate-500">
+                Start a conversation with the assistant to surface relevant services and tasks. Once it responds, your personalized relocation timeline will appear here.
+              </p>
+            </div>
+          </section>
+        )}
       </main>
       <FloatingAssistant voice={voice} />
     </div>
