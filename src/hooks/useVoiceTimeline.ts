@@ -50,7 +50,7 @@ const MODEL = 'gpt-4o-realtime-preview-2024-12-17'
 
 const SESSION_INSTRUCTIONS = `You are Gullie, a relocation voice specialist guiding a user who is moving from one city to another.
 - Be concise, friendly, and speak in English.
-- Always greet with: "Hi, I see that you have a move started from {from_city} to {to_city}."
+- Always greet with: "Hi, I see that you have a move started from {from_city} to {to_city}." Do not ask them to confirm the cities unless you are missing that information.
 - Begin every session by calling get_relocation() and list_selected_services().
 - Check recent progress by calling list_tasks with status="in_progress" and limit=5, then ask for updates.
 - Ask one discovery question at a time about immigration, housing, shipping, finance, and education.
@@ -58,7 +58,6 @@ const SESSION_INSTRUCTIONS = `You are Gullie, a relocation voice specialist guid
 - The UI is a single timeline view. Do not call navigate_view unless absolutely necessary.
 - When a user hints at a need, immediately call select_service (or select_services) with the canonical service IDs, then call add_service_tasks so the cards appear without delay.
 - When tasks are reported complete, call update_tasks or complete_tasks and provide a brief summary.
-- When housing help is requested, call open_housing_search with a concise prompt.
 - End each spoken response with a short next-step question.
 - Remember what the user said earlier in the conversation and reference it naturally.
 - Keep the conversation one prompt at a time; do not queue multiple questions.`
@@ -138,6 +137,13 @@ const SERVICE_SYNONYMS: Record<string, ServiceId> = {
   shipping: 'moving',
   'ship furniture': 'moving',
   'moving company': 'moving',
+  'moving services': 'moving',
+  'moving support': 'moving',
+  'moving furniture': 'moving',
+  'furniture moving': 'moving',
+  'move furniture': 'moving',
+  'shipping services': 'moving',
+  'shipping support': 'moving',
   finance: 'finances',
   finances: 'finances',
   banking: 'finances',
@@ -424,11 +430,6 @@ function createToolHandlers(context: ToolHandlerContext) {
         dispatchHighlight({ ids: touched, action: 'updated' })
       }
       return { success: true, updated: touched.length }
-    },
-    open_housing_search: async () => {
-      console.info('[voice] open_housing_search')
-      dispatchUiMessage('Opening housing search results')
-      return { success: true, url: '/housing-search' }
     },
     get_relocation: async () => {
       console.info('[voice] get_relocation')
@@ -814,7 +815,12 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
             break
           case 'response.input_text.delta':
           case 'response.input_audio_transcription.delta': {
-            const chunk = payload.text ?? payload.transcript ?? payload.delta ?? ''
+            const chunk =
+              extractTextFromParts(payload.content) ??
+              payload.text ??
+              payload.transcript ??
+              payload.delta ??
+              ''
             if (!chunk) break
             const next = (userMessage ?? '') + chunk
             setUserMessage(next)
@@ -822,12 +828,15 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
           }
           case 'response.input_text.done':
           case 'response.input_audio_transcription.done': {
-            const trailing = payload?.text ?? payload?.transcript ?? payload?.delta ?? ''
-            const combined = (userMessage ?? '') + trailing
-            if (combined.trim()) {
-              appendUserMessage(combined)
+            const trailing =
+              extractTextFromParts(payload.content) ??
+              payload?.text ??
+              payload?.transcript ??
+              payload?.delta ??
+              ''
+            if (trailing) {
+              setUserMessage((prev) => (prev ?? '') + trailing)
             }
-            setUserMessage(null)
             break
           }
           case 'response.function_call':
@@ -1149,12 +1158,6 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
       },
       {
         type: 'function',
-        name: 'open_housing_search',
-        description: 'Open a housing search view with suggested filters',
-        parameters: { type: 'object', additionalProperties: false, properties: {} },
-      },
-      {
-        type: 'function',
         name: 'get_relocation',
         description: 'Read the current relocation profile (cities and move date)',
         parameters: { type: 'object', additionalProperties: false, properties: {} },
@@ -1217,7 +1220,7 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
       const audioElement = document.createElement('audio')
       audioElement.autoplay = true
       audioElement.setAttribute('playsinline', 'true')
-      audioElement.playbackRate = 3
+      audioElement.playbackRate = 10
       document.body.appendChild(audioElement)
       remoteAudioRef.current = audioElement
 

@@ -91,19 +91,32 @@ export function TimelineBoard({ tasks, selectedServices, highlightedTaskIds }: T
   }
 
   return (
-    <div className="relative space-y-10 pl-10">
-      <div className="pointer-events-none absolute left-4 top-0 h-full w-px bg-slate-200" />
+    <div className="space-y-12">
       {activeServices.map((service, serviceIndex) => {
         const serviceTasks = tasksByService.get(service.id) ?? []
+        const isFirst = serviceIndex === 0
+        const isLast = serviceIndex === activeServices.length - 1
 
         return (
-          <section key={service.id} className="relative">
-            <span
-              className="absolute left-4 top-3 flex h-4 w-4 -translate-x-1/2 items-center justify-center rounded-full border-2 border-white shadow"
-              style={{ backgroundColor: service.accentColor }}
-            />
-            <div className="ml-8 rounded-3xl border border-slate-200 bg-white/80 p-6 shadow-sm backdrop-blur">
-              <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <section
+            key={service.id}
+            className="grid grid-cols-[48px,1fr] items-start gap-6"
+          >
+            <div className="relative flex justify-center">
+              {!isFirst && (
+                <span className="absolute bottom-1/2 top-0 w-px translate-y-2 bg-slate-200" />
+              )}
+              {!isLast && (
+                <span className="absolute bottom-0 top-1/2 w-px -translate-y-2 bg-slate-200" />
+              )}
+              <span
+                className="relative z-10 mt-2 h-4 w-4 rounded-full border-2 border-white shadow"
+                style={{ backgroundColor: service.accentColor }}
+              />
+            </div>
+
+            <div className="rounded-3xl border border-slate-200 bg-white/85 p-6 shadow-sm backdrop-blur">
+              <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex items-start gap-3">
                   <div
                     className="flex h-12 w-12 items-center justify-center rounded-2xl text-white"
@@ -116,7 +129,7 @@ export function TimelineBoard({ tasks, selectedServices, highlightedTaskIds }: T
                     <p className="text-sm text-slate-500">{service.description}</p>
                   </div>
                 </div>
-                <span className="mt-3 inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600 sm:mt-0">
+                <span className="inline-flex items-center gap-1 self-start rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
                   {serviceTasks.length} task{serviceTasks.length === 1 ? '' : 's'}
                 </span>
               </header>
