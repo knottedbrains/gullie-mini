@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
-const MODEL = 'gpt-4o-realtime-preview'
+const MODEL = 'gpt-4o-realtime-preview-2024-12-17'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {

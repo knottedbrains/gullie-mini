@@ -2,9 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { clsx } from 'clsx'
 import { ChevronDown } from 'lucide-react'
 import { services } from '../data/services'
-import type { AssistantTaskHighlightDetail, RelocationProfile, ServiceId, TimelineTask } from '../types/timeline'
+import type { AssistantTaskHighlightDetail, ServiceId, TimelineTask } from '../types/timeline'
 import { TaskCard } from './TaskCard'
-import { RelocationSummaryCard } from './RelocationSummaryCard'
 
 type AnimationHint = 'created' | 'updated' | 'completed' | 'touched'
 
@@ -19,10 +18,9 @@ interface TimelineBoardProps {
   tasks: TimelineTask[]
   selectedServices: ServiceId[]
   highlightedTaskIds: Set<string>
-  relocationProfile: RelocationProfile
 }
 
-export function TimelineBoard({ tasks, selectedServices, highlightedTaskIds, relocationProfile }: TimelineBoardProps) {
+export function TimelineBoard({ tasks, selectedServices, highlightedTaskIds }: TimelineBoardProps) {
   const [expandedServices, setExpandedServices] = useState<ServiceId[]>(selectedServices)
   const [animationHints, setAnimationHints] = useState<AnimationMap>({})
 
@@ -99,9 +97,21 @@ export function TimelineBoard({ tasks, selectedServices, highlightedTaskIds, rel
 
   const activeServices = services.filter((service) => selectedServices.includes(service.id))
 
+  if (activeServices.length === 0) {
+    return (
+      <section className="rounded-3xl border border-dashed border-slate-200 bg-white/60 p-6 text-center text-slate-500 shadow-sm">
+        No active services yet. Ask the assistant about immigration, housing, or shipping to kick things off.
+      </section>
+    )
+  }
+
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      <RelocationSummaryCard profile={relocationProfile} activeServices={activeServices.map((service) => service.label)} />
+    <div
+      className={clsx(
+        'grid gap-6',
+        activeServices.length > 1 ? 'lg:grid-cols-2' : 'lg:grid-cols-1',
+      )}
+    >
       {activeServices.map((service) => {
         const serviceTasks = tasksByService.get(service.id) ?? []
         const isExpanded = expandedServices.includes(service.id)

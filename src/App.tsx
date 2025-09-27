@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { FloatingAssistant } from './components/FloatingAssistant'
 import { TimelineBoard } from './components/TimelineBoard'
+import { RelocationSummaryCard } from './components/RelocationSummaryCard'
 import { useTimelineState } from './hooks/useTimelineState'
 import type { AssistantTaskHighlightDetail } from './types/timeline'
 import { useVoiceTimeline } from './hooks/useVoiceTimeline'
+import { services } from './data/services'
 
 function useAssistantHighlights(duration = 2400) {
   const [highlights, setHighlights] = useState<Map<string, number>>(new Map())
@@ -81,8 +83,14 @@ function App() {
   })
 
   const showTimeline = selectedServices.length > 0 || tasks.length > 0
-  const originLabel = relocationProfile.fromCity ?? 'Your origin'
-  const destinationLabel = relocationProfile.toCity ?? 'Your destination'
+
+  const activeServiceLabels = useMemo(() => {
+    if (!selectedServices.length) {
+      return []
+    }
+    const active = new Set(selectedServices)
+    return services.filter((service) => active.has(service.id)).map((service) => service.label)
+  }, [selectedServices])
 
   const handleStartVoice = async () => {
     if (voice.phase === 'idle') {
@@ -124,44 +132,28 @@ function App() {
           />
         </section>
 
-        {showTimeline ? (
-          <section className="space-y-6">
-            <header className="flex flex-col gap-4 rounded-4xl border border-white/10 bg-white/5 px-8 py-6 text-slate-100 shadow-inner shadow-black/20 backdrop-blur">
-              <div className="flex flex-col items-center gap-4 text-center">
-                <span className="text-xs uppercase tracking-[0.35em] text-sky-300/80">Relocation Route</span>
-                <div className="flex items-center gap-3 text-2xl font-semibold text-white">
-                  <span>{originLabel}</span>
-                  <span className="text-sky-300">→</span>
-                  <span>{destinationLabel}</span>
-                </div>
-                {relocationProfile.moveDate ? (
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-300/70">
-                    Target move date · {new Date(relocationProfile.moveDate).toLocaleDateString()}
-                  </p>
-                ) : null}
-              </div>
-            </header>
-
+        <section className="space-y-6">
+          <RelocationSummaryCard profile={relocationProfile} activeServices={activeServiceLabels} />
+          {showTimeline ? (
             <TimelineBoard
               tasks={visibleTasks}
               selectedServices={selectedServices}
               highlightedTaskIds={highlightedTaskIds}
-              relocationProfile={relocationProfile}
             />
-          </section>
-        ) : (
-          <section className="rounded-4xl border border-dashed border-white/10 bg-white/5 px-10 py-16 text-center text-slate-200 shadow-inner shadow-black/20 backdrop-blur">
-            <div className="mx-auto max-w-2xl space-y-6">
-              <h2 className="text-2xl font-semibold text-white">Ready when you are</h2>
-              <p className="text-base text-slate-300/90">
-                Tell Gullie what you are working on — immigration, housing, schools, or shipping. The assistant will select the right services, generate the next steps, and check things off as you confirm progress.
-              </p>
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-400/80">
-                Tap “Speak to the voice assistant” to begin
-              </p>
+          ) : (
+            <div className="rounded-4xl border border-dashed border-white/10 bg-white/5 px-10 py-16 text-center text-slate-200 shadow-inner shadow-black/20 backdrop-blur">
+              <div className="mx-auto max-w-2xl space-y-6">
+                <h2 className="text-2xl font-semibold text-white">Ready when you are</h2>
+                <p className="text-base text-slate-300/90">
+                  Tell Gullie what you are working on — immigration, housing, schools, or shipping. The assistant will select the right services, generate the next steps, and check things off as you confirm progress.
+                </p>
+                <p className="text-xs uppercase tracking-[0.3em] text-slate-400/80">
+                  Tap “Speak to the voice assistant” to begin
+                </p>
+              </div>
             </div>
-          </section>
-        )}
+          )}
+        </section>
       </main>
       <FloatingAssistant voice={voice} />
     </div>

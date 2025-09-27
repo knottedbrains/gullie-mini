@@ -46,7 +46,7 @@ interface PendingFunctionCall {
 type ToolResult = Record<string, unknown> | string | number | boolean | null
 
 const STUN_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }]
-const MODEL = 'gpt-4o-realtime-preview'
+const MODEL = 'gpt-4o-realtime-preview-2024-12-17'
 
 const SESSION_INSTRUCTIONS = `You are Gullie, a relocation voice specialist guiding a user who is moving from one city to another.
 - Be concise, friendly, and speak in English.
@@ -224,7 +224,11 @@ function createToolHandlers(context: ToolHandlerContext) {
       const services = selectedServicesRef.current
       return { services }
     },
-    select_services: async ({ services: inputs = [] }: { services?: string[] }) => {
+    select_services: async ({ services: rawServices, service_ids, ids, serviceIds }: { services?: string[] | string; service_ids?: string[] | string; ids?: string[] | string; serviceIds?: string[] | string }) => {
+      const collected = [rawServices, service_ids, ids, serviceIds]
+        .filter((value): value is string[] | string => value !== undefined)
+        .flatMap((value) => (Array.isArray(value) ? value : [value]))
+      const inputs = collected.length ? collected : []
       console.info('[voice] select_services', inputs)
       const resolved = resolveServiceIds(inputs)
       if (!resolved.length) {
@@ -247,9 +251,10 @@ function createToolHandlers(context: ToolHandlerContext) {
       dispatchUiMessage(`Selected services: ${merged.join(', ')}`)
       return { success: true, services: merged, created }
     },
-    add_service_tasks: async ({ serviceId }: { serviceId: string }) => {
-      console.info('[voice] add_service_tasks', serviceId)
-      const resolved = resolveServiceIds([serviceId])
+    add_service_tasks: async ({ serviceId, service, service_id }: { serviceId?: string; service?: string; service_id?: string }) => {
+      const candidate = serviceId ?? service ?? service_id
+      console.info('[voice] add_service_tasks', candidate)
+      const resolved = candidate ? resolveServiceIds([candidate]) : []
       if (!resolved.length) {
         return { success: false, message: 'Unknown service.' }
       }
@@ -262,7 +267,11 @@ function createToolHandlers(context: ToolHandlerContext) {
       }
       return { success: true, created: generated.length }
     },
-    unselect_services: async ({ services: inputs = [] }: { services?: string[] }) => {
+    unselect_services: async ({ services: rawServices, service_ids, ids, serviceIds }: { services?: string[] | string; service_ids?: string[] | string; ids?: string[] | string; serviceIds?: string[] | string }) => {
+      const collected = [rawServices, service_ids, ids, serviceIds]
+        .filter((value): value is string[] | string => value !== undefined)
+        .flatMap((value) => (Array.isArray(value) ? value : [value]))
+      const inputs = collected.length ? collected : []
       console.info('[voice] unselect_services', inputs)
       const resolved = resolveServiceIds(inputs)
       if (!resolved.length) {
@@ -276,10 +285,19 @@ function createToolHandlers(context: ToolHandlerContext) {
       dispatchUiMessage(`Active services: ${next.join(', ')}`)
       return { success: true, services: next }
     },
-    list_tasks: async ({ service }: { service?: string }) => {
+    list_tasks: async ({ service, status, limit }: { service?: string; status?: string; limit?: number }) => {
       const tasks = tasksRef.current
       const serviceId = service ? resolveServiceIds([service])[0] : undefined
-      const filtered = serviceId ? tasks.filter((task) => task.serviceId === serviceId) : tasks
+      const statusFilter = status === 'pending' || status === 'in_progress' || status === 'completed'
+        ? status
+        : undefined
+      let filtered = serviceId ? tasks.filter((task) => task.serviceId === serviceId) : tasks
+      if (statusFilter) {
+        filtered = filtered.filter((task) => task.status === statusFilter)
+      }
+      if (limit && Number.isFinite(limit)) {
+        filtered = filtered.slice(0, Math.max(0, Math.floor(limit)))
+      }
       return {
         count: filtered.length,
         tasks: filtered.map((task) => ({
@@ -379,18 +397,23 @@ function createToolHandlers(context: ToolHandlerContext) {
         move_date: profile.moveDate ?? 'TBD',
       }
     },
-    set_relocation_profile: async ({ from_city, to_city, move_date }: { from_city?: string; to_city?: string; move_date?: string }) => {
-      console.info('[voice] set_relocation_profile', { from_city, to_city, move_date })
+    set_relocation_profile: async ({ from_city, to_city, move_date, fromCity, toCity, moveDate }: { from_city?: string; to_city?: string; move_date?: string; fromCity?: string; toCity?: string; moveDate?: string }) => {
+      const normalized = {
+        from_city: from_city ?? fromCity,
+        to_city: to_city ?? toCity,
+        move_date: move_date ?? moveDate,
+      }
+      console.info('[voice] set_relocation_profile', normalized)
       const next: RelocationProfile = {
         ...relocationProfileRef.current,
-        fromCity: from_city ?? relocationProfileRef.current.fromCity,
-        toCity: to_city ?? relocationProfileRef.current.toCity,
-        moveDate: move_date ?? relocationProfileRef.current.moveDate,
+        fromCity: normalized.from_city ?? relocationProfileRef.current.fromCity,
+        toCity: normalized.to_city ?? relocationProfileRef.current.toCity,
+        moveDate: normalized.move_date ?? relocationProfileRef.current.moveDate,
         lastUpdatedAt: new Date().toISOString(),
       }
       relocationProfileRef.current = next
       setRelocationProfile(next)
-      if (from_city || to_city || move_date) {
+      if (normalized.from_city || normalized.to_city || normalized.move_date) {
         const origin = next.fromCity ? next.fromCity : 'your origin city'
         const destination = next.toCity ? next.toCity : 'your destination'
         dispatchUiMessage(`Relocation route updated: ${origin} → ${destination}`)
@@ -399,6 +422,9 @@ function createToolHandlers(context: ToolHandlerContext) {
     },
   }
 }
+
+export { createToolHandlers }
+export type { ToolHandlerContext }
 
 export interface UseVoiceTimelineResult {
   phase: VoiceConnectionPhase
@@ -452,6 +478,22 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
   useEffect(() => {
     relocationProfileRef.current = relocationProfile
   }, [relocationProfile])
+
+  const registerPendingCall = useCallback(
+    (callId: string | undefined, name: string | undefined, initialArgs?: string | object) => {
+      if (!callId || !name) {
+        return
+      }
+      const argsString = typeof initialArgs === 'string'
+        ? initialArgs
+        : initialArgs
+          ? JSON.stringify(initialArgs)
+          : ''
+      pendingCallsRef.current.set(callId, { name, args: argsString })
+      setPhase('function')
+    },
+    [],
+  )
 
   const toolHandlers = useMemo(
     () =>
@@ -596,7 +638,8 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
   )
 
   const handleFunctionExecution = useCallback(
-    async (callId: string) => {
+    async (callId: string | undefined) => {
+      if (!callId) return
       const pending = pendingCallsRef.current.get(callId)
       if (!pending) return
       pendingCallsRef.current.delete(callId)
@@ -609,14 +652,19 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
           throw new Error(`Handler missing for tool ${pending.name}`)
         }
         const output = await handler(args)
-        dataChannelRef.current?.send(
+        const channel = dataChannelRef.current
+        const serialized = JSON.stringify(output)
+        channel?.send(
           JSON.stringify({
-            type: 'response.function_call_output',
-            call_id: callId,
-            output: JSON.stringify(output),
+            type: 'conversation.item.create',
+            item: {
+              type: 'function_call_output',
+              call_id: callId,
+              output: serialized,
+            },
           }),
         )
-        dataChannelRef.current?.send(
+        channel?.send(
           JSON.stringify({
             type: 'response.create',
             response: {
@@ -626,11 +674,23 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
         )
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error'
-        dataChannelRef.current?.send(
+        const channel = dataChannelRef.current
+        channel?.send(
           JSON.stringify({
-            type: 'response.function_call_output',
-            call_id: callId,
-            output: JSON.stringify({ success: false, message }),
+            type: 'conversation.item.create',
+            item: {
+              type: 'function_call_output',
+              call_id: callId,
+              output: JSON.stringify({ success: false, message }),
+            },
+          }),
+        )
+        channel?.send(
+          JSON.stringify({
+            type: 'response.create',
+            response: {
+              instructions: 'Provide a concise spoken update and end with a next-step question.',
+            },
           }),
         )
       } finally {
@@ -666,58 +726,144 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
             }
             setPhase('listening')
             break
-          case 'response.input_text.delta': {
-            const chunk = payload.text ?? payload.delta ?? ''
+          case 'response.audio_transcript.delta': {
+            assistantBufferRef.current += payload.text ?? payload.transcript ?? payload.delta ?? ''
+            break
+          }
+          case 'response.audio_transcript.done':
+            if (assistantBufferRef.current) {
+              appendAssistantMessage(assistantBufferRef.current)
+              assistantBufferRef.current = ''
+            }
+            setPhase('listening')
+            break
+          case 'response.input_text.delta':
+          case 'response.input_audio_transcription.delta': {
+            const chunk = payload.text ?? payload.transcript ?? payload.delta ?? ''
             if (!chunk) break
             const next = (userMessage ?? '') + chunk
             setUserMessage(next)
             break
           }
-          case 'response.input_text.done': {
-            if (userMessage) {
-              appendUserMessage(userMessage)
-              setUserMessage(null)
+          case 'response.input_text.done':
+          case 'response.input_audio_transcription.done': {
+            const trailing = payload?.text ?? payload?.transcript ?? payload?.delta ?? ''
+            const combined = (userMessage ?? '') + trailing
+            if (combined.trim()) {
+              appendUserMessage(combined)
             }
+            setUserMessage(null)
             break
           }
           case 'response.function_call':
-            pendingCallsRef.current.set(payload.call_id, { name: payload.name, args: '' })
-            setPhase('function')
+          case 'response.tool_call':
+            registerPendingCall(payload.call_id, payload.name)
             break
-          case 'response.function_call_arguments.delta': {
+          case 'response.function_call_arguments.delta':
+          case 'response.tool_call_arguments.delta':
+          case 'response.function_call.arguments.delta':
+          case 'response.tool_call.arguments.delta': {
             const call = pendingCallsRef.current.get(payload.call_id)
             if (call) {
               const chunk = payload.delta ?? payload.arguments ?? ''
-              call.args += chunk
+              if (chunk) {
+                call.args += chunk
+              }
             }
             break
           }
           case 'response.function_call_arguments.done':
+          case 'response.tool_call_arguments.done':
+          case 'response.function_call.arguments.done':
+          case 'response.tool_call.arguments.done':
             void handleFunctionExecution(payload.call_id)
             break
-          // Newer event names (dot-separated) — support both for compatibility
-          case 'response.function_call.arguments.delta': {
-            const call = pendingCallsRef.current.get(payload.call_id)
-            if (call) {
-              const chunk = payload.delta ?? payload.arguments ?? ''
-              call.args += chunk
+          case 'response.output_item.added':
+            if (payload.item?.type === 'function_call') {
+              const callId = payload.item.call_id ?? payload.output_item_id ?? payload.item.id
+              registerPendingCall(callId, payload.item.name, payload.item.arguments)
+            }
+            break
+          case 'response.output_item.delta':
+            if (payload.item?.type === 'function_call') {
+              const callId = payload.item.call_id ?? payload.output_item_id ?? payload.item.id
+              const call = callId ? pendingCallsRef.current.get(callId) : undefined
+              if (call) {
+                const chunk = payload.delta?.arguments ?? payload.delta ?? ''
+                if (chunk) {
+                  call.args += chunk
+                }
+              }
+            }
+            break
+          case 'response.output_item.done':
+            if (payload.item?.type === 'function_call') {
+              const callId = payload.item.call_id ?? payload.output_item_id ?? payload.item.id
+              void handleFunctionExecution(callId)
+            }
+            break
+          case 'conversation.item.created': {
+            const item = payload.item
+            if (item?.type === 'function_call') {
+              const callId = item.call_id ?? item.id
+              registerPendingCall(callId, item.name, item.arguments)
+            }
+            if (item?.type === 'message' && item.role === 'assistant') {
+              const parts = Array.isArray(item.content) ? item.content : []
+              const text = parts
+                .filter((part: any) => part?.type === 'output_text' || part?.type === 'text')
+                .map((part: any) => part?.text ?? part?.value ?? '')
+                .join(' ')
+              if (text.trim()) {
+                appendAssistantMessage(text)
+              }
             }
             break
           }
-          case 'response.function_call.arguments.done':
-            void handleFunctionExecution(payload.call_id)
+          case 'conversation.item.delta':
+            if (payload.item?.type === 'function_call') {
+              const callId = payload.item.call_id ?? payload.item.id
+              const call = callId ? pendingCallsRef.current.get(callId) : undefined
+              if (call) {
+                const chunk = payload.delta?.arguments ?? payload.delta ?? ''
+                if (chunk) {
+                  call.args += chunk
+                }
+              }
+            }
+            break
+          case 'conversation.item.completed':
+            if (payload.item?.type === 'function_call') {
+              const callId = payload.item.call_id ?? payload.item.id
+              void handleFunctionExecution(callId)
+            }
             break
           case 'response.refusal.delta':
             assistantBufferRef.current += payload.text ?? ''
             break
+          case 'session.created':
+          case 'session.updated':
+          case 'input_audio_buffer.speech_started':
+          case 'input_audio_buffer.speech_stopped':
+          case 'input_audio_buffer.committed':
+          case 'output_audio_buffer.started':
+          case 'output_audio_buffer.stopped':
+          case 'rate_limits.updated':
+          case 'response.done':
+            break
           default:
+            if (payload?.type) {
+              console.debug('[voice] unhandled event', payload.type, payload)
+            } else {
+              console.debug('[voice] unhandled message', event.data)
+            }
             break
         }
       } catch (error) {
         console.warn('Failed to parse data channel message', error, event.data)
       }
     },
-    [appendAssistantMessage, handleFunctionExecution, userMessage],
+    [appendAssistantMessage, handleFunctionExecution, registerPendingCall, userMessage],
   )
 
   const sendSessionUpdate = useCallback(() => {
@@ -755,8 +901,10 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
           additionalProperties: false,
           properties: {
             services: { type: 'array', items: { type: 'string' } },
+            service_ids: { type: 'array', items: { type: 'string' } },
+            ids: { type: 'array', items: { type: 'string' } },
+            serviceIds: { type: 'array', items: { type: 'string' } },
           },
-          required: ['services'],
         },
       },
       {
@@ -768,8 +916,9 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
           additionalProperties: false,
           properties: {
             serviceId: { type: 'string' },
+            service: { type: 'string' },
+            service_id: { type: 'string' },
           },
-          required: ['serviceId'],
         },
       },
       {
@@ -781,19 +930,23 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
           additionalProperties: false,
           properties: {
             services: { type: 'array', items: { type: 'string' } },
+            service_ids: { type: 'array', items: { type: 'string' } },
+            ids: { type: 'array', items: { type: 'string' } },
+            serviceIds: { type: 'array', items: { type: 'string' } },
           },
-          required: ['services'],
         },
       },
       {
         type: 'function',
         name: 'list_tasks',
-        description: 'List tasks, optionally filtered by service',
+        description: 'List tasks, optionally filtered by service, status, or limit',
         parameters: {
           type: 'object',
           additionalProperties: false,
           properties: {
             service: { type: 'string' },
+            status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] },
+            limit: { type: 'number', minimum: 1, maximum: 25 },
           },
         },
       },
@@ -888,6 +1041,9 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
             from_city: { type: 'string' },
             to_city: { type: 'string' },
             move_date: { type: 'string' },
+            fromCity: { type: 'string' },
+            toCity: { type: 'string' },
+            moveDate: { type: 'string' },
           },
         },
       },
@@ -901,6 +1057,7 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
           modalities: ['audio', 'text'],
           tool_choice: 'auto',
           tools,
+          voice: 'verse',
         },
       }),
     )
