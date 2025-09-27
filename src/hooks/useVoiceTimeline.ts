@@ -55,11 +55,9 @@ const SESSION_INSTRUCTIONS = `You are Gullie, a relocation voice specialist guid
 - Check recent progress by calling list_tasks with status="in_progress" and limit=5, then ask for updates.
 - Ask one discovery question at a time about immigration, housing, shipping, finance, and education.
 - Whenever the user shares their origin or destination cities (or confirms their route), call set_relocation_profile({ from_city, to_city, move_date? }) so the UI updates immediately.
-- Suggest enabling timeline services when the user hints at a need. Call navigate_view("timeline") followed by select_services with the canonical service IDs.
-- When a service is selected, request add_service_tasks({ serviceId }) to populate the timeline right away.
-- Before modifying services call navigate_view("timeline"). Before modifying tasks call navigate_view("dashboard").
-- After every tool call, provide a spoken summary of what changed.
-- When tasks are reported complete, call update_tasks or complete_tasks. Handle cascading updates when possible.
+- The UI is a single timeline view. Do not call navigate_view unless absolutely necessary.
+- When a user hints at a need, immediately call select_service (or select_services) with the canonical service IDs, then call add_service_tasks so the cards appear without delay.
+- When tasks are reported complete, call update_tasks or complete_tasks and provide a brief summary.
 - When housing help is requested, call open_housing_search with a concise prompt.
 - End each spoken response with a short next-step question.
 - Remember what the user said earlier in the conversation and reference it naturally.
@@ -129,11 +127,11 @@ const SERVICE_SYNONYMS: Record<string, ServiceId> = {
   rent: 'housing',
   rental: 'housing',
   lease: 'housing',
-  'temporary housing': 'settling',
-  'temp housing': 'settling',
-  'temporary accommodation': 'settling',
-  'short term accommodation': 'settling',
-  'short-term accommodation': 'settling',
+  'temporary housing': 'temp_accommodation',
+  'temp housing': 'temp_accommodation',
+  'temporary accommodation': 'temp_accommodation',
+  'short term accommodation': 'temp_accommodation',
+  'short-term accommodation': 'temp_accommodation',
   moving: 'moving',
   'move logistics': 'moving',
   movers: 'moving',
@@ -146,16 +144,52 @@ const SERVICE_SYNONYMS: Record<string, ServiceId> = {
   'bank account': 'finances',
   budget: 'finances',
   'open bank account': 'finances',
+  healthcare: 'healthcare',
+  health: 'healthcare',
+  doctor: 'healthcare',
+  'find doctor': 'healthcare',
+  insurance: 'healthcare',
+  'health insurance': 'healthcare',
+  transportation: 'transportation',
+  transit: 'transportation',
+  commuting: 'transportation',
+  'public transport': 'transportation',
+  'driving license': 'transportation',
+  'driver license': 'transportation',
+  lifestyle: 'lifestyle',
+  integration: 'lifestyle',
+  'language classes': 'lifestyle',
+  community: 'lifestyle',
+  wellness: 'lifestyle',
+  pets: 'pets',
+  'pet relocation': 'pets',
+  'pet move': 'pets',
+  'pet transport': 'pets',
+  children: 'children',
+  kids: 'children',
+  schooling: 'children',
+  schools: 'children',
+  school: 'children',
+  childcare: 'children',
+  education: 'education',
+  'education advisor': 'education',
+  'school consultant': 'education',
+  'identification numbers': 'identification',
+  ssn: 'identification',
+  itin: 'identification',
+  'tax id': 'identification',
+  tax: 'tax',
+  taxes: 'tax',
+  accounting: 'tax',
+  'tax advisor': 'tax',
+  spouse: 'spouse_job',
+  'spouse job': 'spouse_job',
+  'partner job': 'spouse_job',
+  'career coaching': 'spouse_job',
   settling: 'settling',
-  lifestyle: 'settling',
-  community: 'settling',
-  schools: 'settling',
-  school: 'settling',
-  education: 'settling',
-  children: 'settling',
-  kids: 'settling',
-  pets: 'settling',
-  'pet relocation': 'settling',
+  'settling in': 'settling',
+  welcome: 'settling',
+  onboarding: 'settling',
 }
 
 function resolveServiceIds(candidates: string[]): ServiceId[] {
@@ -212,7 +246,73 @@ function createToolHandlers(context: ToolHandlerContext) {
     tasksRef.current = appended
   }
 
-  return {
+  type Handler = (payload: any) => Promise<ToolResult>
+
+  const handleSelectServices: Handler = async ({ services: rawServices, service_ids, ids, serviceIds }: { services?: string[] | string; service_ids?: string[] | string; ids?: string[] | string; serviceIds?: string[] | string }) => {
+    const collected = [rawServices, service_ids, ids, serviceIds]
+      .filter((value): value is string[] | string => value !== undefined)
+      .flatMap((value) => (Array.isArray(value) ? value : [value]))
+    const inputs = collected.length ? collected : []
+    console.info('[voice] select_services', inputs)
+    const resolved = resolveServiceIds(inputs)
+    if (!resolved.length) {
+      return { success: false, message: 'No matching services found.' }
+    }
+    const merged = Array.from(new Set([...selectedServicesRef.current, ...resolved]))
+    selectedServicesRef.current = merged
+    setSelectedServices(merged)
+    dispatchCategories(merged)
+    const created: Record<string, number> = {}
+    for (const serviceId of resolved) {
+      const generated = buildServiceTasks(serviceId)
+      ensureTasksRefUpdated(tasksRef, generated)
+      if (generated.length) {
+        dispatchHighlight({ ids: generated.map((task) => task.id), action: 'created' })
+        dispatchUiMessage(`Built ${generated.length} tasks for ${serviceId}`)
+      }
+      created[serviceId] = generated.length
+    }
+    dispatchUiMessage(`Selected services: ${merged.join(', ')}`)
+    return { success: true, services: merged, created }
+  }
+
+  const handleAddServiceTasks: Handler = async ({ serviceId, service, service_id }: { serviceId?: string; service?: string; service_id?: string }) => {
+    const candidate = serviceId ?? service ?? service_id
+    console.info('[voice] add_service_tasks', candidate)
+    const resolved = candidate ? resolveServiceIds([candidate]) : []
+    if (!resolved.length) {
+      return { success: false, message: 'Unknown service.' }
+    }
+    const id = resolved[0]
+    const generated = buildServiceTasks(id)
+    ensureTasksRefUpdated(tasksRef, generated)
+    if (generated.length) {
+      dispatchHighlight({ ids: generated.map((task) => task.id), action: 'created' })
+      dispatchUiMessage(`Added ${generated.length} tasks for ${id}`)
+    }
+    return { success: true, created: generated.length }
+  }
+
+  const handleUnselectServices: Handler = async ({ services: rawServices, service_ids, ids, serviceIds }: { services?: string[] | string; service_ids?: string[] | string; ids?: string[] | string; serviceIds?: string[] | string }) => {
+    const collected = [rawServices, service_ids, ids, serviceIds]
+      .filter((value): value is string[] | string => value !== undefined)
+      .flatMap((value) => (Array.isArray(value) ? value : [value]))
+    const inputs = collected.length ? collected : []
+    console.info('[voice] unselect_services', inputs)
+    const resolved = resolveServiceIds(inputs)
+    if (!resolved.length) {
+      return { success: false, message: 'No matching services to unselect.' }
+    }
+    const remaining = selectedServicesRef.current.filter((id) => !resolved.includes(id))
+    const next = remaining.length ? remaining : selectedServicesRef.current
+    selectedServicesRef.current = next
+    setSelectedServices(next)
+    dispatchCategories(next)
+    dispatchUiMessage(`Active services: ${next.join(', ')}`)
+    return { success: true, services: next }
+  }
+
+  const handlers: Record<string, Handler> = {
     navigate_view: async ({ view }: { view: string }) => {
       console.info('[voice] navigate_view', view)
       const destination = view === 'dashboard' ? 'dashboard' : 'timeline'
@@ -224,67 +324,9 @@ function createToolHandlers(context: ToolHandlerContext) {
       const services = selectedServicesRef.current
       return { services }
     },
-    select_services: async ({ services: rawServices, service_ids, ids, serviceIds }: { services?: string[] | string; service_ids?: string[] | string; ids?: string[] | string; serviceIds?: string[] | string }) => {
-      const collected = [rawServices, service_ids, ids, serviceIds]
-        .filter((value): value is string[] | string => value !== undefined)
-        .flatMap((value) => (Array.isArray(value) ? value : [value]))
-      const inputs = collected.length ? collected : []
-      console.info('[voice] select_services', inputs)
-      const resolved = resolveServiceIds(inputs)
-      if (!resolved.length) {
-        return { success: false, message: 'No matching services found.' }
-      }
-      const merged = Array.from(new Set([...selectedServicesRef.current, ...resolved]))
-      selectedServicesRef.current = merged
-      setSelectedServices(merged)
-      dispatchCategories(merged)
-      const created: Record<string, number> = {}
-      for (const serviceId of resolved) {
-        const generated = buildServiceTasks(serviceId)
-        ensureTasksRefUpdated(tasksRef, generated)
-        if (generated.length) {
-          dispatchHighlight({ ids: generated.map((task) => task.id), action: 'created' })
-          dispatchUiMessage(`Built ${generated.length} tasks for ${serviceId}`)
-        }
-        created[serviceId] = generated.length
-      }
-      dispatchUiMessage(`Selected services: ${merged.join(', ')}`)
-      return { success: true, services: merged, created }
-    },
-    add_service_tasks: async ({ serviceId, service, service_id }: { serviceId?: string; service?: string; service_id?: string }) => {
-      const candidate = serviceId ?? service ?? service_id
-      console.info('[voice] add_service_tasks', candidate)
-      const resolved = candidate ? resolveServiceIds([candidate]) : []
-      if (!resolved.length) {
-        return { success: false, message: 'Unknown service.' }
-      }
-      const id = resolved[0]
-      const generated = buildServiceTasks(id)
-      ensureTasksRefUpdated(tasksRef, generated)
-      if (generated.length) {
-        dispatchHighlight({ ids: generated.map((task) => task.id), action: 'created' })
-        dispatchUiMessage(`Added ${generated.length} tasks for ${id}`)
-      }
-      return { success: true, created: generated.length }
-    },
-    unselect_services: async ({ services: rawServices, service_ids, ids, serviceIds }: { services?: string[] | string; service_ids?: string[] | string; ids?: string[] | string; serviceIds?: string[] | string }) => {
-      const collected = [rawServices, service_ids, ids, serviceIds]
-        .filter((value): value is string[] | string => value !== undefined)
-        .flatMap((value) => (Array.isArray(value) ? value : [value]))
-      const inputs = collected.length ? collected : []
-      console.info('[voice] unselect_services', inputs)
-      const resolved = resolveServiceIds(inputs)
-      if (!resolved.length) {
-        return { success: false, message: 'No matching services to unselect.' }
-      }
-      const remaining = selectedServicesRef.current.filter((id) => !resolved.includes(id))
-      const next = remaining.length ? remaining : selectedServicesRef.current
-      selectedServicesRef.current = next
-      setSelectedServices(next)
-      dispatchCategories(next)
-      dispatchUiMessage(`Active services: ${next.join(', ')}`)
-      return { success: true, services: next }
-    },
+    select_services: handleSelectServices,
+    add_service_tasks: handleAddServiceTasks,
+    unselect_services: handleUnselectServices,
     list_tasks: async ({ service, status, limit }: { service?: string; status?: string; limit?: number }) => {
       const tasks = tasksRef.current
       const serviceId = service ? resolveServiceIds([service])[0] : undefined
@@ -421,6 +463,25 @@ function createToolHandlers(context: ToolHandlerContext) {
       return { success: true, profile: next }
     },
   }
+
+  handlers.select_service = async ({ service, id, service_id, name }: { service?: string; id?: string; service_id?: string; name?: string }) => {
+    const candidate = service ?? id ?? service_id ?? name
+    const inputs = candidate ? [candidate] : []
+    return handleSelectServices({ services: inputs })
+  }
+
+  handlers.add_service = async ({ service, serviceId, service_id, name }: { service?: string; serviceId?: string; service_id?: string; name?: string }) => {
+    const candidate = service ?? serviceId ?? service_id ?? name
+    return handleAddServiceTasks({ serviceId: candidate })
+  }
+
+  handlers.unselect_service = async ({ service, id, service_id, name }: { service?: string; id?: string; service_id?: string; name?: string }) => {
+    const candidate = service ?? id ?? service_id ?? name
+    const inputs = candidate ? [candidate] : []
+    return handleUnselectServices({ services: inputs })
+  }
+
+  return handlers
 }
 
 export { createToolHandlers }
@@ -704,6 +765,20 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
     (event: MessageEvent<string>) => {
       try {
         const payload = JSON.parse(event.data)
+        const extractTextFromParts = (parts: unknown): string => {
+          if (!Array.isArray(parts)) return ''
+          return parts
+            .map((part) => {
+              if (!part || typeof part !== 'object') return ''
+              const candidate = part as { text?: unknown; value?: unknown; transcript?: unknown }
+              if (typeof candidate.text === 'string') return candidate.text
+              if (typeof candidate.value === 'string') return candidate.value
+              if (typeof candidate.transcript === 'string') return candidate.transcript
+              return ''
+            })
+            .filter(Boolean)
+            .join(' ')
+        }
         switch (payload.type) {
           case 'response.created':
             setPhase('thinking')
@@ -808,14 +883,12 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
               const callId = item.call_id ?? item.id
               registerPendingCall(callId, item.name, item.arguments)
             }
-            if (item?.type === 'message' && item.role === 'assistant') {
-              const parts = Array.isArray(item.content) ? item.content : []
-              const text = parts
-                .filter((part: any) => part?.type === 'output_text' || part?.type === 'text')
-                .map((part: any) => part?.text ?? part?.value ?? '')
-                .join(' ')
+            if (item?.type === 'message') {
+              const text = extractTextFromParts(item.content)
               if (text.trim()) {
-                appendAssistantMessage(text)
+                if (item.role === 'assistant') {
+                  appendAssistantMessage(text)
+                }
               }
             }
             break
@@ -830,12 +903,23 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
                   call.args += chunk
                 }
               }
+            } else if (payload.item?.type === 'message' && payload.item.role === 'user') {
+              const partial = extractTextFromParts(payload.delta?.content)
+              if (partial) {
+                setUserMessage((prev) => (prev ?? '') + partial)
+              }
             }
             break
           case 'conversation.item.completed':
             if (payload.item?.type === 'function_call') {
               const callId = payload.item.call_id ?? payload.item.id
               void handleFunctionExecution(callId)
+            } else if (payload.item?.type === 'message' && payload.item.role === 'user') {
+              const finalText = extractTextFromParts(payload.item.content)
+              if (finalText.trim()) {
+                appendUserMessage(finalText)
+              }
+              setUserMessage(null)
             }
             break
           case 'response.refusal.delta':
@@ -909,6 +993,21 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
       },
       {
         type: 'function',
+        name: 'select_service',
+        description: 'Enable a service for the user timeline',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            service: { type: 'string' },
+            id: { type: 'string' },
+            service_id: { type: 'string' },
+            name: { type: 'string' },
+          },
+        },
+      },
+      {
+        type: 'function',
         name: 'add_service_tasks',
         description: 'Generate tasks for a specific service',
         parameters: {
@@ -918,6 +1017,21 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
             serviceId: { type: 'string' },
             service: { type: 'string' },
             service_id: { type: 'string' },
+          },
+        },
+      },
+      {
+        type: 'function',
+        name: 'add_service',
+        description: 'Generate tasks for a specific service',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            service: { type: 'string' },
+            serviceId: { type: 'string' },
+            service_id: { type: 'string' },
+            name: { type: 'string' },
           },
         },
       },
@@ -933,6 +1047,21 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
             service_ids: { type: 'array', items: { type: 'string' } },
             ids: { type: 'array', items: { type: 'string' } },
             serviceIds: { type: 'array', items: { type: 'string' } },
+          },
+        },
+      },
+      {
+        type: 'function',
+        name: 'unselect_service',
+        description: 'Disable a service',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            service: { type: 'string' },
+            id: { type: 'string' },
+            service_id: { type: 'string' },
+            name: { type: 'string' },
           },
         },
       },
@@ -1088,6 +1217,7 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
       const audioElement = document.createElement('audio')
       audioElement.autoplay = true
       audioElement.setAttribute('playsinline', 'true')
+      audioElement.playbackRate = 3
       document.body.appendChild(audioElement)
       remoteAudioRef.current = audioElement
 

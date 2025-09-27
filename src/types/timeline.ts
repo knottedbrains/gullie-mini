@@ -1,10 +1,20 @@
 import type { LucideIcon } from 'lucide-react'
 
 export type ServiceId =
-  | 'housing'
   | 'immigration'
+  | 'temp_accommodation'
+  | 'housing'
   | 'moving'
   | 'finances'
+  | 'healthcare'
+  | 'transportation'
+  | 'lifestyle'
+  | 'pets'
+  | 'children'
+  | 'education'
+  | 'identification'
+  | 'tax'
+  | 'spouse_job'
   | 'settling'
 
 export type TaskStatus = 'pending' | 'in_progress' | 'completed'

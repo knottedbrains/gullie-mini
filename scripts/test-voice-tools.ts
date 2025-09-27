@@ -84,6 +84,14 @@ async function run() {
   await toolHandlers.set_relocation_profile({ from_city: 'Paris', to_city: 'Berlin' })
   log.push(`Profile: ${persistedProfile.fromCity} -> ${persistedProfile.toCity}`)
 
+  log.push('Selecting service via alias')
+  await toolHandlers.select_service({ service: 'shipping' })
+  log.push(`Active services after alias: ${persistedSelectedServices.join(',')}`)
+
+  log.push('Adding pet relocation tasks')
+  await toolHandlers.select_service({ service: 'pet relocation' })
+  log.push(`Active services now: ${persistedSelectedServices.join(',')}`)
+
   log.push('Listing tasks with limit=1')
   const listResult = await toolHandlers.list_tasks({ service: 'housing', limit: 1 })
   log.push(`List response count: ${listResult.count}`)

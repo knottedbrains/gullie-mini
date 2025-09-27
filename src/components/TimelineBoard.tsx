@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { clsx } from 'clsx'
-import { ChevronDown } from 'lucide-react'
 import { services } from '../data/services'
 import type { AssistantTaskHighlightDetail, ServiceId, TimelineTask } from '../types/timeline'
 import { TaskCard } from './TaskCard'
@@ -21,7 +19,6 @@ interface TimelineBoardProps {
 }
 
 export function TimelineBoard({ tasks, selectedServices, highlightedTaskIds }: TimelineBoardProps) {
-  const [expandedServices, setExpandedServices] = useState<ServiceId[]>(selectedServices)
   const [animationHints, setAnimationHints] = useState<AnimationMap>({})
 
   const tasksByService = useMemo(() => {
@@ -39,14 +36,6 @@ export function TimelineBoard({ tasks, selectedServices, highlightedTaskIds }: T
 
     return grouped
   }, [tasks])
-
-  useEffect(() => {
-    setExpandedServices((prev) => {
-      const set = new Set(prev)
-      selectedServices.forEach((id) => set.add(id))
-      return Array.from(set)
-    })
-  }, [selectedServices])
 
   useEffect(() => {
     const handleHighlight = (event: Event) => {
@@ -89,15 +78,11 @@ export function TimelineBoard({ tasks, selectedServices, highlightedTaskIds }: T
     return () => window.clearInterval(interval)
   }, [])
 
-  const toggleServiceExpansion = (serviceId: ServiceId) => {
-    setExpandedServices((prev) =>
-      prev.includes(serviceId) ? prev.filter((id) => id !== serviceId) : [...prev, serviceId],
-    )
-  }
+  const activeServices = selectedServices
+    .map((id) => services.find((service) => service.id === id))
+    .filter((service): service is (typeof services)[number] => Boolean(service))
 
-  const activeServices = services.filter((service) => selectedServices.includes(service.id))
-
-  if (activeServices.length === 0) {
+  if (!activeServices.length) {
     return (
       <section className="rounded-3xl border border-dashed border-slate-200 bg-white/60 p-6 text-center text-slate-500 shadow-sm">
         No active services yet. Ask the assistant about immigration, housing, or shipping to kick things off.
@@ -106,79 +91,55 @@ export function TimelineBoard({ tasks, selectedServices, highlightedTaskIds }: T
   }
 
   return (
-    <div
-      className={clsx(
-        'grid gap-6',
-        activeServices.length > 1 ? 'lg:grid-cols-2' : 'lg:grid-cols-1',
-      )}
-    >
-      {activeServices.map((service) => {
+    <div className="relative space-y-10 pl-10">
+      <div className="pointer-events-none absolute left-4 top-0 h-full w-px bg-slate-200" />
+      {activeServices.map((service, serviceIndex) => {
         const serviceTasks = tasksByService.get(service.id) ?? []
-        const isExpanded = expandedServices.includes(service.id)
 
         return (
-          <section
-            key={service.id}
-            className="relative rounded-3xl border border-slate-200 bg-white/70 p-6 shadow-sm backdrop-blur"
-          >
-            <header className="flex items-start justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div
-                  className="flex h-12 w-12 items-center justify-center rounded-2xl text-white"
-                  style={{ backgroundImage: `linear-gradient(135deg, ${service.accentColor}, #1e293b)` }}
-                >
-                  <service.icon className="h-6 w-6" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-900">
-                    {service.label}
-                  </h2>
-                  <p className="text-sm text-slate-500">{service.description}</p>
-                </div>
-              </div>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500">
-                {serviceTasks.length} task{serviceTasks.length === 1 ? '' : 's'}
-              </span>
-              <button
-                type="button"
-                onClick={() => toggleServiceExpansion(service.id)}
-                className="ml-auto inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:border-slate-300 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
-              >
-                <ChevronDown className={clsx('h-4 w-4 transition-transform', isExpanded ? 'rotate-180' : '')} />
-              </button>
-            </header>
-            <div
-              className={clsx(
-                'mt-6 grid gap-4 transition-all duration-500 ease-out',
-                isExpanded ? 'opacity-100' : 'pointer-events-none opacity-0',
-              )}
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(0, 1fr))' }}
-            >
-              {serviceTasks.length === 0 ? (
-                <p className="text-sm text-slate-500">
-                  No tasks yet. Ask the voice assistant to add something for this service.
-                </p>
-              ) : (
-                serviceTasks.map((task, index) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    accentColor={service.accentColor}
-                    highlighted={highlightedTaskIds.has(task.id)}
-                    animationHint={animationHints[task.id]?.type}
-                    animationDelay={index * 70}
-                  />
-                ))
-              )}
-            </div>
-            <div
-              aria-hidden
-              className={clsx(
-                'pointer-events-none absolute inset-x-10 bottom-0 h-24 rounded-t-full opacity-20 blur-3xl transition-opacity',
-                serviceTasks.length > 0 ? 'opacity-30' : 'opacity-5',
-              )}
+          <section key={service.id} className="relative">
+            <span
+              className="absolute left-4 top-3 flex h-4 w-4 -translate-x-1/2 items-center justify-center rounded-full border-2 border-white shadow"
               style={{ backgroundColor: service.accentColor }}
             />
+            <div className="ml-8 rounded-3xl border border-slate-200 bg-white/80 p-6 shadow-sm backdrop-blur">
+              <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <div
+                    className="flex h-12 w-12 items-center justify-center rounded-2xl text-white"
+                    style={{ backgroundImage: `linear-gradient(135deg, ${service.accentColor}, #1e293b)` }}
+                  >
+                    <service.icon className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-slate-900">{service.label}</h2>
+                    <p className="text-sm text-slate-500">{service.description}</p>
+                  </div>
+                </div>
+                <span className="mt-3 inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600 sm:mt-0">
+                  {serviceTasks.length} task{serviceTasks.length === 1 ? '' : 's'}
+                </span>
+              </header>
+
+              <div className="mt-6 space-y-4">
+                {serviceTasks.length === 0 ? (
+                  <p className="text-sm text-slate-500">
+                    No tasks yet. Ask the voice assistant for next steps around this service.
+                  </p>
+                ) : (
+                  serviceTasks.map((task, index) => (
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      accentColor={service.accentColor}
+                      highlighted={highlightedTaskIds.has(task.id)}
+                      animationHint={animationHints[task.id]?.type}
+                      animationDelay={(serviceIndex * 4 + index) * 70}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
           </section>
         )
       })}
