@@ -40,6 +40,17 @@ export function FloatingAssistant({ voice }: FloatingAssistantProps) {
     }
   }, [voice.phase])
 
+  const transcriptItems = useMemo(() => {
+    const limit = 6
+    const total = voice.messages.length
+    const start = total > limit ? total - limit : 0
+    return voice.messages.slice(start).map((message) => ({
+      id: message.id,
+      role: message.role === 'assistant' ? 'Assistant' : 'You',
+      content: message.content.trim(),
+    }))
+  }, [voice.messages])
+
   const isActive = voice.phase !== 'idle' && voice.phase !== 'error'
 
   const handleToggle = async () => {
@@ -109,6 +120,24 @@ export function FloatingAssistant({ voice }: FloatingAssistantProps) {
                   <li key={event.timestamp} className="flex items-center gap-2">
                     <Headphones className="h-3.5 w-3.5 text-slate-400" />
                     <span>{event.message}</span>
+                  </li>
+                ))
+              )}
+            </ul>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Conversation</p>
+            <ul className="space-y-2 text-sm text-slate-600">
+              {transcriptItems.length === 0 ? (
+                <li className="text-slate-400">Say hello to start the transcript.</li>
+              ) : (
+                transcriptItems.map((item) => (
+                  <li key={item.id} className="rounded-2xl bg-slate-100 px-3 py-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      {item.role}
+                    </p>
+                    <p className="mt-1 whitespace-pre-line text-slate-700">{item.content}</p>
                   </li>
                 ))
               )}

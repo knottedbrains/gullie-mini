@@ -695,6 +695,18 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
           case 'response.function_call_arguments.done':
             void handleFunctionExecution(payload.call_id)
             break
+          // Newer event names (dot-separated) — support both for compatibility
+          case 'response.function_call.arguments.delta': {
+            const call = pendingCallsRef.current.get(payload.call_id)
+            if (call) {
+              const chunk = payload.delta ?? payload.arguments ?? ''
+              call.args += chunk
+            }
+            break
+          }
+          case 'response.function_call.arguments.done':
+            void handleFunctionExecution(payload.call_id)
+            break
           case 'response.refusal.delta':
             assistantBufferRef.current += payload.text ?? ''
             break
@@ -715,25 +727,171 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
     const instructions = SESSION_INSTRUCTIONS
 
     const tools = [
-      'navigate_view',
-      'list_selected_services',
-      'select_services',
-      'add_service_tasks',
-      'unselect_services',
-      'list_tasks',
-      'update_tasks',
-      'complete_tasks',
-      'edit_task',
-      'toggle_task',
-      'open_housing_search',
-      'get_relocation',
-      'set_relocation_profile',
-    ].map((name) => ({
-      type: 'function',
-      name,
-      description: `Tool handler for ${name.replace(/_/g, ' ')}`,
-      parameters: { type: 'object' },
-    }))
+      {
+        type: 'function',
+        name: 'navigate_view',
+        description: 'Switch between timeline and dashboard views',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            view: { type: 'string', enum: ['timeline', 'dashboard'] },
+          },
+          required: ['view'],
+        },
+      },
+      {
+        type: 'function',
+        name: 'list_selected_services',
+        description: 'List currently active services in the timeline',
+        parameters: { type: 'object', additionalProperties: false, properties: {} },
+      },
+      {
+        type: 'function',
+        name: 'select_services',
+        description: 'Enable one or more services for the user timeline',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            services: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['services'],
+        },
+      },
+      {
+        type: 'function',
+        name: 'add_service_tasks',
+        description: 'Generate tasks for a specific service',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            serviceId: { type: 'string' },
+          },
+          required: ['serviceId'],
+        },
+      },
+      {
+        type: 'function',
+        name: 'unselect_services',
+        description: 'Disable one or more services',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            services: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['services'],
+        },
+      },
+      {
+        type: 'function',
+        name: 'list_tasks',
+        description: 'List tasks, optionally filtered by service',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            service: { type: 'string' },
+          },
+        },
+      },
+      {
+        type: 'function',
+        name: 'update_tasks',
+        description: 'Update multiple tasks with partial fields',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            updates: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: true,
+                properties: {
+                  id: { type: 'string' },
+                  title: { type: 'string' },
+                  description: { type: 'string' },
+                  timeframe: { type: 'string' },
+                  status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] },
+                  serviceId: { type: 'string' },
+                  sequence: { type: 'number' },
+                },
+                required: ['id'],
+              },
+            },
+          },
+        },
+      },
+      {
+        type: 'function',
+        name: 'complete_tasks',
+        description: 'Mark one or more tasks complete',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            ids: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['ids'],
+        },
+      },
+      {
+        type: 'function',
+        name: 'edit_task',
+        description: 'Edit a single task with partial updates',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string' },
+            updates: { type: 'object', additionalProperties: true },
+          },
+          required: ['id'],
+        },
+      },
+      {
+        type: 'function',
+        name: 'toggle_task',
+        description: 'Toggle a task between completed and pending',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string' },
+          },
+          required: ['id'],
+        },
+      },
+      {
+        type: 'function',
+        name: 'open_housing_search',
+        description: 'Open a housing search view with suggested filters',
+        parameters: { type: 'object', additionalProperties: false, properties: {} },
+      },
+      {
+        type: 'function',
+        name: 'get_relocation',
+        description: 'Read the current relocation profile (cities and move date)',
+        parameters: { type: 'object', additionalProperties: false, properties: {} },
+      },
+      {
+        type: 'function',
+        name: 'set_relocation_profile',
+        description: 'Update relocation cities and/or target move date',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            from_city: { type: 'string' },
+            to_city: { type: 'string' },
+            move_date: { type: 'string' },
+          },
+        },
+      },
+    ]
 
     channel.send(
       JSON.stringify({
