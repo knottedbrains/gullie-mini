@@ -6,18 +6,24 @@ interface TaskCardProps {
   task: TimelineTask
   accentColor: string
   highlighted: boolean
+  animationHint?: 'created' | 'updated' | 'completed' | 'touched'
+  animationDelay?: number
 }
 
-export function TaskCard({ task, accentColor, highlighted }: TaskCardProps) {
+export function TaskCard({ task, accentColor, highlighted, animationHint, animationDelay = 0 }: TaskCardProps) {
   const isComplete = task.status === 'completed'
 
   return (
     <article
       className={clsx(
-        'relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 transition',
+        'relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 transition-transform duration-500 ease-out',
+        animationHint === 'created' && 'animate-card-pop',
+        animationHint === 'updated' && 'animate-card-pulse',
+        animationHint === 'completed' && 'animate-card-complete',
         highlighted && 'ring-4 ring-offset-2 ring-sky-400/70',
         !highlighted && 'shadow-sm hover:shadow-md',
       )}
+      style={{ transitionDelay: `${animationDelay}ms` }}
     >
       <div className="flex items-start justify-between gap-2">
         <div>

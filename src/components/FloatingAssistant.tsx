@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
 import { Headphones, Mic, MicOff, Pause, Play, Waves } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { AssistantUiMessageDetail } from '../types/timeline'
@@ -11,8 +10,6 @@ interface FloatingAssistantProps {
 
 export function FloatingAssistant({ voice }: FloatingAssistantProps) {
   const [statusEvents, setStatusEvents] = useState<AssistantUiMessageDetail[]>([])
-  const [userTranscripts, setUserTranscripts] = useState<string[]>([])
-  const [draft, setDraft] = useState('')
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -44,13 +41,6 @@ export function FloatingAssistant({ voice }: FloatingAssistantProps) {
   }, [voice.phase])
 
   const isActive = voice.phase !== 'idle' && voice.phase !== 'error'
-
-  const handleSubmit = (event: FormEvent) => {
-    event.preventDefault()
-    if (!draft.trim()) return
-    setUserTranscripts((prev) => [draft.trim(), ...prev].slice(0, 3))
-    setDraft('')
-  }
 
   const handleToggle = async () => {
     if (isActive) {
@@ -124,60 +114,6 @@ export function FloatingAssistant({ voice }: FloatingAssistantProps) {
               )}
             </ul>
           </div>
-
-          <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Assistant transcript</p>
-            <ul className="space-y-2 text-sm text-slate-600">
-              {voice.messages.length === 0 ? (
-                <li className="text-slate-400">No responses yet.</li>
-              ) : (
-                voice.messages
-                  .slice(-4)
-                  .reverse()
-                  .map((message) => (
-                    <li key={message.id} className="rounded-2xl bg-slate-100 px-3 py-2">
-                      {message.content}
-                    </li>
-                  ))
-              )}
-            </ul>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-2">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-400" htmlFor="assistant-draft">
-              Try a text prompt
-            </label>
-            <input
-              id="assistant-draft"
-              type="text"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder="e.g. Highlight immigration tasks"
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200"
-            />
-            <div className="flex items-center justify-between">
-              <button
-                type="submit"
-                className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
-              >
-                Queue prompt
-              </button>
-              <span className="text-xs text-slate-400">Sends as a note (demo only)</span>
-            </div>
-          </form>
-
-          {userTranscripts.length ? (
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Queued prompts</p>
-              <ul className="space-y-1 text-sm text-slate-500">
-                {userTranscripts.map((entry, index) => (
-                  <li key={`${entry}-${index}`} className="rounded-xl border border-slate-200 px-3 py-2">
-                    {entry}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
         </div>
       </div>
     </aside>

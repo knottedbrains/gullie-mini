@@ -9,7 +9,8 @@
     "dev:backend": "ts-node-dev --respawn --project backend/tsconfig.json backend/src/server.ts",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node server/index.js"
   },
   "dependencies": {
     "clsx": "^2.1.1",

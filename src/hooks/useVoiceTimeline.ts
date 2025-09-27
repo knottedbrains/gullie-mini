@@ -5,6 +5,7 @@ import { services } from '../data/services'
 import type {
   AssistantTaskHighlightDetail,
   AssistantUiMessageDetail,
+  RelocationProfile,
   ServiceId,
   TaskStatus,
   TimelineTask,
@@ -17,6 +18,9 @@ interface UseVoiceTimelineArgs {
   replaceTasks: (tasks: TimelineTask[]) => void
   upsertTask: (task: TimelineTask) => void
   updateTaskStatus: (taskId: string, status: TaskStatus) => void
+  buildServiceTasks: (serviceId: ServiceId) => TimelineTask[]
+  relocationProfile: RelocationProfile
+  setRelocationProfile: (profile: RelocationProfile) => void
 }
 
 export type VoiceConnectionPhase =
@@ -43,6 +47,23 @@ type ToolResult = Record<string, unknown> | string | number | boolean | null
 
 const STUN_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }]
 const MODEL = 'gpt-4o-realtime-preview'
+
+const SESSION_INSTRUCTIONS = `You are Gullie, a relocation voice specialist guiding a user who is moving from one city to another.
+- Be concise, friendly, and speak in English.
+- Always greet with: "Hi, I see that you have a move started from {from_city} to {to_city}."
+- Begin every session by calling get_relocation() and list_selected_services().
+- Check recent progress by calling list_tasks with status="in_progress" and limit=5, then ask for updates.
+- Ask one discovery question at a time about immigration, housing, shipping, finance, and education.
+- Whenever the user shares their origin or destination cities (or confirms their route), call set_relocation_profile({ from_city, to_city, move_date? }) so the UI updates immediately.
+- Suggest enabling timeline services when the user hints at a need. Call navigate_view("timeline") followed by select_services with the canonical service IDs.
+- When a service is selected, request add_service_tasks({ serviceId }) to populate the timeline right away.
+- Before modifying services call navigate_view("timeline"). Before modifying tasks call navigate_view("dashboard").
+- After every tool call, provide a spoken summary of what changed.
+- When tasks are reported complete, call update_tasks or complete_tasks. Handle cascading updates when possible.
+- When housing help is requested, call open_housing_search with a concise prompt.
+- End each spoken response with a short next-step question.
+- Remember what the user said earlier in the conversation and reference it naturally.
+- Keep the conversation one prompt at a time; do not queue multiple questions.`
 
 function dispatchUiMessage(message: string) {
   if (typeof window === 'undefined') return
@@ -92,10 +113,61 @@ const serviceLookup = (() => {
   return map
 })()
 
+const SERVICE_SYNONYMS: Record<string, ServiceId> = {
+  visa: 'immigration',
+  visas: 'immigration',
+  'work permit': 'immigration',
+  permit: 'immigration',
+  immigration: 'immigration',
+  'immigration support': 'immigration',
+  'visa support': 'immigration',
+  housing: 'housing',
+  'long term housing': 'housing',
+  'long-term housing': 'housing',
+  'apartment search': 'housing',
+  apartment: 'housing',
+  rent: 'housing',
+  rental: 'housing',
+  lease: 'housing',
+  'temporary housing': 'settling',
+  'temp housing': 'settling',
+  'temporary accommodation': 'settling',
+  'short term accommodation': 'settling',
+  'short-term accommodation': 'settling',
+  moving: 'moving',
+  'move logistics': 'moving',
+  movers: 'moving',
+  shipping: 'moving',
+  'ship furniture': 'moving',
+  'moving company': 'moving',
+  finance: 'finances',
+  finances: 'finances',
+  banking: 'finances',
+  'bank account': 'finances',
+  budget: 'finances',
+  'open bank account': 'finances',
+  settling: 'settling',
+  lifestyle: 'settling',
+  community: 'settling',
+  schools: 'settling',
+  school: 'settling',
+  education: 'settling',
+  children: 'settling',
+  kids: 'settling',
+  pets: 'settling',
+  'pet relocation': 'settling',
+}
+
 function resolveServiceIds(candidates: string[]): ServiceId[] {
   const resolved = new Set<ServiceId>()
   for (const candidate of candidates) {
-    const match = serviceLookup.get(normalize(candidate))
+    const key = normalize(candidate)
+    const synonym = SERVICE_SYNONYMS[key]
+    if (synonym) {
+      resolved.add(synonym)
+      continue
+    }
+    const match = serviceLookup.get(key)
     if (match) {
       resolved.add(match)
     }
@@ -110,39 +182,95 @@ interface ToolHandlerContext {
   replaceTasks: (tasks: TimelineTask[]) => void
   upsertTask: (task: TimelineTask) => void
   updateTaskStatus: (taskId: string, status: TaskStatus) => void
+  buildServiceTasks: (serviceId: ServiceId) => TimelineTask[]
+  relocationProfileRef: MutableRefObject<RelocationProfile>
+  setRelocationProfile: (profile: RelocationProfile) => void
 }
 
 function createToolHandlers(context: ToolHandlerContext) {
-  const { tasksRef, selectedServicesRef, setSelectedServices, replaceTasks, upsertTask, updateTaskStatus } = context
+  const {
+    tasksRef,
+    selectedServicesRef,
+    setSelectedServices,
+    replaceTasks,
+    upsertTask,
+    updateTaskStatus,
+    buildServiceTasks,
+    relocationProfileRef,
+    setRelocationProfile,
+  } = context
+
+  const ensureTasksRefUpdated = (tasksRef: MutableRefObject<TimelineTask[]>, created: TimelineTask[]) => {
+    if (!created.length) return
+    const known = new Set(tasksRef.current.map((task) => task.id))
+    const appended = [...tasksRef.current]
+    for (const task of created) {
+      if (!known.has(task.id)) {
+        appended.push(task)
+      }
+    }
+    tasksRef.current = appended
+  }
 
   return {
     navigate_view: async ({ view }: { view: string }) => {
+      console.info('[voice] navigate_view', view)
       const destination = view === 'dashboard' ? 'dashboard' : 'timeline'
       dispatchUiMessage(`Switched to ${destination} view`)
       return { success: true, view: destination }
     },
     list_selected_services: async () => {
+      console.info('[voice] list_selected_services')
       const services = selectedServicesRef.current
       return { services }
     },
     select_services: async ({ services: inputs = [] }: { services?: string[] }) => {
+      console.info('[voice] select_services', inputs)
       const resolved = resolveServiceIds(inputs)
       if (!resolved.length) {
         return { success: false, message: 'No matching services found.' }
       }
       const merged = Array.from(new Set([...selectedServicesRef.current, ...resolved]))
+      selectedServicesRef.current = merged
       setSelectedServices(merged)
       dispatchCategories(merged)
+      const created: Record<string, number> = {}
+      for (const serviceId of resolved) {
+        const generated = buildServiceTasks(serviceId)
+        ensureTasksRefUpdated(tasksRef, generated)
+        if (generated.length) {
+          dispatchHighlight({ ids: generated.map((task) => task.id), action: 'created' })
+          dispatchUiMessage(`Built ${generated.length} tasks for ${serviceId}`)
+        }
+        created[serviceId] = generated.length
+      }
       dispatchUiMessage(`Selected services: ${merged.join(', ')}`)
-      return { success: true, services: merged }
+      return { success: true, services: merged, created }
+    },
+    add_service_tasks: async ({ serviceId }: { serviceId: string }) => {
+      console.info('[voice] add_service_tasks', serviceId)
+      const resolved = resolveServiceIds([serviceId])
+      if (!resolved.length) {
+        return { success: false, message: 'Unknown service.' }
+      }
+      const id = resolved[0]
+      const generated = buildServiceTasks(id)
+      ensureTasksRefUpdated(tasksRef, generated)
+      if (generated.length) {
+        dispatchHighlight({ ids: generated.map((task) => task.id), action: 'created' })
+        dispatchUiMessage(`Added ${generated.length} tasks for ${id}`)
+      }
+      return { success: true, created: generated.length }
     },
     unselect_services: async ({ services: inputs = [] }: { services?: string[] }) => {
+      console.info('[voice] unselect_services', inputs)
       const resolved = resolveServiceIds(inputs)
       if (!resolved.length) {
         return { success: false, message: 'No matching services to unselect.' }
       }
       const remaining = selectedServicesRef.current.filter((id) => !resolved.includes(id))
       const next = remaining.length ? remaining : selectedServicesRef.current
+      selectedServicesRef.current = next
       setSelectedServices(next)
       dispatchCategories(next)
       dispatchUiMessage(`Active services: ${next.join(', ')}`)
@@ -150,7 +278,8 @@ function createToolHandlers(context: ToolHandlerContext) {
     },
     list_tasks: async ({ service }: { service?: string }) => {
       const tasks = tasksRef.current
-      const filtered = service ? tasks.filter((task) => task.serviceId === resolveServiceIds([service])[0]) : tasks
+      const serviceId = service ? resolveServiceIds([service])[0] : undefined
+      const filtered = serviceId ? tasks.filter((task) => task.serviceId === serviceId) : tasks
       return {
         count: filtered.length,
         tasks: filtered.map((task) => ({
@@ -163,6 +292,7 @@ function createToolHandlers(context: ToolHandlerContext) {
       }
     },
     complete_tasks: async ({ ids = [] }: { ids?: string[] }) => {
+      console.info('[voice] complete_tasks', ids)
       const updated: string[] = []
       for (const id of ids) {
         if (tasksRef.current.some((task) => task.id === id)) {
@@ -176,6 +306,7 @@ function createToolHandlers(context: ToolHandlerContext) {
       return { updated }
     },
     toggle_task: async ({ id }: { id: string }) => {
+      console.info('[voice] toggle_task', id)
       const task = tasksRef.current.find((item) => item.id === id)
       if (!task) {
         return { success: false, message: 'Task not found.' }
@@ -186,6 +317,7 @@ function createToolHandlers(context: ToolHandlerContext) {
       return { success: true, status: nextStatus }
     },
     edit_task: async ({ id, updates = {} }: { id: string; updates?: Partial<TimelineTask> }) => {
+      console.info('[voice] edit_task', id, updates)
       const task = tasksRef.current.find((item) => item.id === id)
       if (!task) return { success: false, message: 'Task not found.' }
       const merged = { ...task, ...updates, lastUpdatedAt: new Date().toISOString() }
@@ -234,10 +366,37 @@ function createToolHandlers(context: ToolHandlerContext) {
       return { success: true, updated: touched.length }
     },
     open_housing_search: async () => {
+      console.info('[voice] open_housing_search')
       dispatchUiMessage('Opening housing search results')
       return { success: true, url: '/housing-search' }
     },
-    get_relocation: async () => ({ from_city: 'San Francisco', to_city: 'Berlin', move_date: '2025-10-01' }),
+    get_relocation: async () => {
+      console.info('[voice] get_relocation')
+      const profile = relocationProfileRef.current
+      return {
+        from_city: profile.fromCity ?? 'Unknown origin',
+        to_city: profile.toCity ?? 'Unknown destination',
+        move_date: profile.moveDate ?? 'TBD',
+      }
+    },
+    set_relocation_profile: async ({ from_city, to_city, move_date }: { from_city?: string; to_city?: string; move_date?: string }) => {
+      console.info('[voice] set_relocation_profile', { from_city, to_city, move_date })
+      const next: RelocationProfile = {
+        ...relocationProfileRef.current,
+        fromCity: from_city ?? relocationProfileRef.current.fromCity,
+        toCity: to_city ?? relocationProfileRef.current.toCity,
+        moveDate: move_date ?? relocationProfileRef.current.moveDate,
+        lastUpdatedAt: new Date().toISOString(),
+      }
+      relocationProfileRef.current = next
+      setRelocationProfile(next)
+      if (from_city || to_city || move_date) {
+        const origin = next.fromCity ? next.fromCity : 'your origin city'
+        const destination = next.toCity ? next.toCity : 'your destination'
+        dispatchUiMessage(`Relocation route updated: ${origin} → ${destination}`)
+      }
+      return { success: true, profile: next }
+    },
   }
 }
 
@@ -253,12 +412,23 @@ export interface UseVoiceTimelineResult {
 }
 
 export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineResult {
-  const { selectedServices, setSelectedServices, tasks, replaceTasks, upsertTask, updateTaskStatus } = args
+  const {
+    selectedServices,
+    setSelectedServices,
+    tasks,
+    replaceTasks,
+    upsertTask,
+    updateTaskStatus,
+    buildServiceTasks,
+    relocationProfile,
+    setRelocationProfile,
+  } = args
   const [phase, setPhase] = useState<VoiceConnectionPhase>('idle')
   const [isMuted, setMuted] = useState(false)
   const [isConnected, setConnected] = useState(false)
   const [error, setError] = useState<string | undefined>()
   const [messages, setMessages] = useState<VoiceMessage[]>([])
+  const [userMessage, setUserMessage] = useState<string | null>(null)
 
   const peerRef = useRef<RTCPeerConnection | null>(null)
   const dataChannelRef = useRef<RTCDataChannel | null>(null)
@@ -269,6 +439,7 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
 
   const tasksRef = useRef<TimelineTask[]>(tasks)
   const selectedRef = useRef<ServiceId[]>(selectedServices)
+  const relocationProfileRef = useRef<RelocationProfile>(relocationProfile)
 
   useEffect(() => {
     tasksRef.current = tasks
@@ -277,6 +448,10 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
   useEffect(() => {
     selectedRef.current = selectedServices
   }, [selectedServices])
+
+  useEffect(() => {
+    relocationProfileRef.current = relocationProfile
+  }, [relocationProfile])
 
   const toolHandlers = useMemo(
     () =>
@@ -287,8 +462,11 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
         replaceTasks,
         upsertTask,
         updateTaskStatus,
+        buildServiceTasks,
+        relocationProfileRef,
+        setRelocationProfile,
       }),
-    [replaceTasks, setSelectedServices, upsertTask, updateTaskStatus],
+    [buildServiceTasks, replaceTasks, setSelectedServices, setRelocationProfile, upsertTask, updateTaskStatus],
   )
 
   const cleanUp = useCallback(() => {
@@ -305,6 +483,7 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
     remoteAudioRef.current = null
     pendingCallsRef.current.clear()
     assistantBufferRef.current = ''
+    setUserMessage(null)
     setConnected(false)
   }, [])
 
@@ -327,14 +506,94 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
   }, [])
 
   const appendAssistantMessage = useCallback((content: string) => {
+    if (!content.trim()) {
+      return
+    }
     const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
       ? crypto.randomUUID()
       : `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`
     setMessages((prev) => [
       ...prev,
-      { id, role: 'assistant', content, timestamp: Date.now() },
+      { id, role: 'assistant', content: content.trim(), timestamp: Date.now() },
     ])
   }, [])
+
+  const inferRelocationFromText = useCallback(
+    (text: string) => {
+      const lower = text.toLowerCase()
+      const current = relocationProfileRef.current
+      let next: RelocationProfile | null = null
+
+      const fullMatch = text.match(/from\s+([A-Za-z\s]+?)\s+(?:to|->|towards)\s+([A-Za-z\s]+)/i)
+      if (fullMatch) {
+        const fromCity = fullMatch[1].trim()
+        const toCity = fullMatch[2].trim()
+        if (fromCity && toCity) {
+          next = {
+            ...current,
+            fromCity,
+            toCity,
+            lastUpdatedAt: new Date().toISOString(),
+          }
+        }
+      }
+
+      if (!next && lower.includes('moving to')) {
+        const match = text.match(/moving to\s+([A-Za-z\s]+)/i)
+        if (match) {
+          const toCity = match[1].trim()
+          if (toCity && !current.toCity) {
+            next = {
+              ...current,
+              toCity,
+              lastUpdatedAt: new Date().toISOString(),
+            }
+          }
+        }
+      }
+
+      if (!next && lower.includes('moving from')) {
+        const match = text.match(/moving from\s+([A-Za-z\s]+)/i)
+        if (match) {
+          const fromCity = match[1].trim()
+          if (fromCity && !current.fromCity) {
+            next = {
+              ...current,
+              fromCity,
+              lastUpdatedAt: new Date().toISOString(),
+            }
+          }
+        }
+      }
+
+      if (next) {
+        relocationProfileRef.current = next
+        setRelocationProfile(next)
+        const origin = next.fromCity ?? 'your origin city'
+        const destination = next.toCity ?? 'your destination'
+        dispatchUiMessage(`Heard your route: ${origin} → ${destination}`)
+      }
+    },
+    [setRelocationProfile],
+  )
+
+  const appendUserMessage = useCallback(
+    (content: string) => {
+      const trimmed = content.trim()
+      if (!trimmed) {
+        return
+      }
+      const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`
+      setMessages((prev) => [
+        ...prev,
+        { id, role: 'user', content: trimmed, timestamp: Date.now() },
+      ])
+      inferRelocationFromText(trimmed)
+    },
+    [inferRelocationFromText],
+  )
 
   const handleFunctionExecution = useCallback(
     async (callId: string) => {
@@ -344,6 +603,7 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
 
       try {
         const args = pending.args.trim() ? JSON.parse(pending.args) : {}
+        console.info('[voice] executing tool', pending.name, args)
         const handler = (toolHandlers as Record<string, (payload: any) => Promise<ToolResult>>)[pending.name]
         if (!handler) {
           throw new Error(`Handler missing for tool ${pending.name}`)
@@ -406,6 +666,20 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
             }
             setPhase('listening')
             break
+          case 'response.input_text.delta': {
+            const chunk = payload.text ?? payload.delta ?? ''
+            if (!chunk) break
+            const next = (userMessage ?? '') + chunk
+            setUserMessage(next)
+            break
+          }
+          case 'response.input_text.done': {
+            if (userMessage) {
+              appendUserMessage(userMessage)
+              setUserMessage(null)
+            }
+            break
+          }
           case 'response.function_call':
             pendingCallsRef.current.set(payload.call_id, { name: payload.name, args: '' })
             setPhase('function')
@@ -431,20 +705,20 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
         console.warn('Failed to parse data channel message', error, event.data)
       }
     },
-    [appendAssistantMessage, handleFunctionExecution],
+    [appendAssistantMessage, handleFunctionExecution, userMessage],
   )
 
   const sendSessionUpdate = useCallback(() => {
     const channel = dataChannelRef.current
     if (!channel) return
-    const instructions = `You are Gullie, a relocation voice specialist. Stay concise and default to English.\n` +
-      `Before changing services, call navigate_view("timeline"). Before changing tasks, call navigate_view("dashboard").\n` +
-      `End every spoken response with a short next-step question.`
+
+    const instructions = SESSION_INSTRUCTIONS
 
     const tools = [
       'navigate_view',
       'list_selected_services',
       'select_services',
+      'add_service_tasks',
       'unselect_services',
       'list_tasks',
       'update_tasks',
@@ -453,6 +727,7 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
       'toggle_task',
       'open_housing_search',
       'get_relocation',
+      'set_relocation_profile',
     ].map((name) => ({
       type: 'function',
       name,
@@ -553,7 +828,11 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
     }
   }, [cleanUp, handleDataChannelMessage, phase, sendSessionUpdate, stop])
 
-  useEffect(() => stop, [stop])
+  useEffect(() => {
+    return () => {
+      stop()
+    }
+  }, [stop])
 
   return {
     phase,

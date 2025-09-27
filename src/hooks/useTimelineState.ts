@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { services } from '../data/services'
+import { getTemplatesForService, instantiateTemplateTask } from '../data/taskTemplates'
 import type {
   CategoriesConfirmedDetail,
+  RelocationProfile,
   ServiceId,
   TimelineTask,
   TimelineTasksUpdatedDetail,
   TaskStatus,
 } from '../types/timeline'
 
-const SERVICE_STORAGE_KEY = 'voice-relocation:selected-services'
-const TASK_STORAGE_KEY = 'voice-relocation:timeline-tasks'
+const SERVICE_STORAGE_KEY = 'gullie-mini:selected-services'
+const TASK_STORAGE_KEY = 'gullie-mini:timeline-tasks'
+const PROFILE_STORAGE_KEY = 'gullie-mini:relocation-profile'
 
 const serviceIds = services.map((service) => service.id)
 
@@ -50,11 +53,14 @@ export interface UseTimelineStateResult {
   tasks: TimelineTask[]
   selectedServices: ServiceId[]
   visibleTasks: TimelineTask[]
+  relocationProfile: RelocationProfile
   toggleService: (serviceId: ServiceId) => void
   setSelectedServices: (next: ServiceId[]) => void
   upsertTask: (task: TimelineTask) => void
   updateTaskStatus: (taskId: string, status: TaskStatus) => void
   replaceTasks: (next: TimelineTask[]) => void
+  buildServiceTasks: (serviceId: ServiceId) => TimelineTask[]
+  setRelocationProfile: (profile: RelocationProfile) => void
 }
 
 export function useTimelineState(): UseTimelineStateResult {
@@ -66,6 +72,9 @@ export function useTimelineState(): UseTimelineStateResult {
       serviceIds.includes(task.serviceId),
     ),
   )
+  const [relocationProfile, setRelocationProfileState] = useState<RelocationProfile>(() =>
+    loadFromStorage<RelocationProfile>(PROFILE_STORAGE_KEY, {}),
+  )
 
   useEffect(() => {
     persistToStorage(SERVICE_STORAGE_KEY, selectedServices)
@@ -74,6 +83,10 @@ export function useTimelineState(): UseTimelineStateResult {
   useEffect(() => {
     persistToStorage(TASK_STORAGE_KEY, tasks)
   }, [tasks])
+
+  useEffect(() => {
+    persistToStorage(PROFILE_STORAGE_KEY, relocationProfile)
+  }, [relocationProfile])
 
   useEffect(() => {
     const handleCategoriesConfirmed = (event: Event) => {
@@ -148,20 +161,57 @@ export function useTimelineState(): UseTimelineStateResult {
     dispatchTimelineUpdate(next)
   }, [])
 
+  const buildServiceTasks = useCallback(
+    (serviceId: ServiceId) => {
+      const templates = getTemplatesForService(serviceId)
+      if (!templates.length) {
+        return []
+      }
+      const existing = tasks.filter((task) => task.serviceId === serviceId)
+      const existingSlugs = new Set(existing.map((task) => task.title))
+      const baseSequence = existing.length
+      const created: TimelineTask[] = []
+      templates.forEach((template, index) => {
+        if (existingSlugs.has(template.title)) {
+          return
+        }
+        const task = instantiateTemplateTask(serviceId, template, baseSequence + index + 1)
+        created.push(task)
+      })
+      if (created.length) {
+        const next = [...tasks, ...created]
+        setTasks(next)
+        dispatchTimelineUpdate(next)
+      }
+      return created
+    },
+    [tasks],
+  )
+
   const visibleTasks = useMemo(() => {
     const active = new Set(selectedServices)
     return tasks.filter((task) => active.has(task.serviceId))
   }, [selectedServices, tasks])
 
+  const setRelocationProfile = useCallback((profile: RelocationProfile) => {
+    setRelocationProfileState((prev) => {
+      const next = { ...prev, ...profile, lastUpdatedAt: new Date().toISOString() }
+      return next
+    })
+  }, [])
+
   return {
     tasks,
     selectedServices,
     visibleTasks,
+    relocationProfile,
     toggleService,
     setSelectedServices,
     upsertTask,
     updateTaskStatus,
     replaceTasks,
+    buildServiceTasks,
+    setRelocationProfile,
   }
 }
 

@@ -26,6 +26,7 @@ export interface TimelineTask {
   status: TaskStatus
   sequence: number
   lastUpdatedAt?: string
+  templateSlug?: string
 }
 
 export interface CategoriesConfirmedDetail {
@@ -44,4 +45,11 @@ export interface AssistantTaskHighlightDetail {
 export interface AssistantUiMessageDetail {
   message: string
   timestamp: number
+}
+
+export interface RelocationProfile {
+  fromCity?: string
+  toCity?: string
+  moveDate?: string
+  lastUpdatedAt?: string
 }
