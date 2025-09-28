@@ -10,6 +10,7 @@ interface FloatingAssistantProps {
 
 export function FloatingAssistant({ voice }: FloatingAssistantProps) {
   const [statusEvents, setStatusEvents] = useState<AssistantUiMessageDetail[]>([])
+  const [isCollapsed, setCollapsed] = useState(true)
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -53,12 +54,32 @@ export function FloatingAssistant({ voice }: FloatingAssistantProps) {
 
   const isActive = voice.phase !== 'idle' && voice.phase !== 'error'
 
+  useEffect(() => {
+    if (isActive) {
+      setCollapsed(false)
+    }
+  }, [isActive])
+
   const handleToggle = async () => {
     if (isActive) {
       voice.stop()
     } else {
       await voice.start()
     }
+  }
+
+  if (isCollapsed) {
+    return (
+      <aside className="pointer-events-none fixed bottom-6 right-6 z-50">
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="pointer-events-auto flex h-14 w-14 items-center justify-center rounded-full bg-sky-500 text-white shadow-lg shadow-sky-500/30 transition hover:bg-sky-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200"
+        >
+          <Mic className="h-6 w-6" />
+        </button>
+      </aside>
+    )
   }
 
   return (
@@ -100,6 +121,14 @@ export function FloatingAssistant({ voice }: FloatingAssistantProps) {
               )}
             >
               {voice.isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setCollapsed(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
+              aria-label="Collapse assistant"
+            >
+              <span className="text-lg leading-none">×</span>
             </button>
           </div>
         </header>

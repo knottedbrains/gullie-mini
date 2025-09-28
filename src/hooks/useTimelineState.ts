@@ -20,6 +20,21 @@ function dedupeServices(ids: ServiceId[]) {
   return Array.from(new Set(ids.filter((id) => serviceIds.includes(id))))
 }
 
+function dedupeTasks(tasks: TimelineTask[]) {
+  const seen = new Set<string>()
+  const ordered: TimelineTask[] = []
+  tasks.forEach((task) => {
+    if (!task?.id) {
+      return
+    }
+    if (!seen.has(task.id)) {
+      seen.add(task.id)
+      ordered.push(task)
+    }
+  })
+  return ordered
+}
+
 function loadFromStorage<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') {
     return fallback
@@ -68,8 +83,10 @@ export function useTimelineState(): UseTimelineStateResult {
     dedupeServices(loadFromStorage<ServiceId[]>(SERVICE_STORAGE_KEY, [])),
   )
   const [tasks, setTasks] = useState<TimelineTask[]>(() =>
-    loadFromStorage<TimelineTask[]>(TASK_STORAGE_KEY, []).filter((task) =>
-      serviceIds.includes(task.serviceId),
+    dedupeTasks(
+      loadFromStorage<TimelineTask[]>(TASK_STORAGE_KEY, []).filter((task) =>
+        serviceIds.includes(task.serviceId),
+      ),
     ),
   )
   const [relocationProfile, setRelocationProfileState] = useState<RelocationProfile>(() =>
@@ -107,7 +124,7 @@ export function useTimelineState(): UseTimelineStateResult {
       if (!detail?.tasks) {
         return
       }
-      setTasks(detail.tasks)
+      setTasks(dedupeTasks(detail.tasks))
     }
 
     window.addEventListener('categoriesConfirmed', handleCategoriesConfirmed as EventListener)
@@ -141,8 +158,9 @@ export function useTimelineState(): UseTimelineStateResult {
       const next = exists
         ? prev.map((item) => (item.id === task.id ? { ...task } : item))
         : [...prev, task]
-      dispatchTimelineUpdate(next)
-      return next
+      const deduped = dedupeTasks(next)
+      dispatchTimelineUpdate(deduped)
+      return deduped
     })
   }, [])
 
@@ -151,14 +169,16 @@ export function useTimelineState(): UseTimelineStateResult {
       const next = prev.map((task) =>
         task.id === taskId ? { ...task, status, lastUpdatedAt: new Date().toISOString() } : task,
       )
-      dispatchTimelineUpdate(next)
-      return next
+      const deduped = dedupeTasks(next)
+      dispatchTimelineUpdate(deduped)
+      return deduped
     })
   }, [])
 
   const replaceTasks = useCallback((next: TimelineTask[]) => {
-    setTasks(next)
-    dispatchTimelineUpdate(next)
+    const deduped = dedupeTasks(next)
+    setTasks(deduped)
+    dispatchTimelineUpdate(deduped)
   }, [])
 
   const buildServiceTasks = useCallback(
@@ -179,7 +199,7 @@ export function useTimelineState(): UseTimelineStateResult {
         created.push(task)
       })
       if (created.length) {
-        const next = [...tasks, ...created]
+        const next = dedupeTasks([...tasks, ...created])
         setTasks(next)
         dispatchTimelineUpdate(next)
       }

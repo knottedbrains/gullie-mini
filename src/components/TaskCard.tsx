@@ -66,6 +66,29 @@ export function TaskCard({ task, accentColor, highlighted, animationHint, animat
           ) : null}
         </div>
       </div>
+      {task.extraInfo && task.extraInfo.length ? (
+        <dl className="mt-4 space-y-2 text-sm text-slate-600">
+          {task.extraInfo.map((item, index) => (
+            <div key={`${task.id}-extra-${index}`} className="flex items-start justify-between gap-3">
+              <dt className="font-medium text-slate-500">{item.label}</dt>
+              {item.href ? (
+                <dd>
+                  <a
+                    href={item.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sky-600 hover:underline"
+                  >
+                    {item.value}
+                  </a>
+                </dd>
+              ) : (
+                <dd className="text-slate-700">{item.value}</dd>
+              )}
+            </div>
+          ))}
+        </dl>
+      ) : null}
       <div
         aria-hidden
         className="pointer-events-none absolute -left-20 top-1/2 h-36 w-36 -translate-y-1/2 rounded-full opacity-10 blur-3xl"

@@ -37,6 +37,11 @@ export interface TimelineTask {
   sequence: number
   lastUpdatedAt?: string
   templateSlug?: string
+  extraInfo?: Array<{
+    label: string
+    value: string
+    href?: string
+  }>
 }
 
 export interface CategoriesConfirmedDetail {

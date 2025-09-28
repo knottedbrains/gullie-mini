@@ -91,29 +91,28 @@ export function TimelineBoard({ tasks, selectedServices, highlightedTaskIds }: T
   }
 
   return (
-    <div className="space-y-12">
-      {activeServices.map((service, serviceIndex) => {
-        const serviceTasks = tasksByService.get(service.id) ?? []
-        const isFirst = serviceIndex === 0
-        const isLast = serviceIndex === activeServices.length - 1
+    <div className="relative pl-6">
+      <span className="pointer-events-none absolute left-[24px] top-0 bottom-0 w-[2px] bg-white/25" />
+      <div className="space-y-12">
+        {activeServices.map((service, serviceIndex) => {
+          const serviceTasks = tasksByService.get(service.id) ?? []
+          const isFirst = serviceIndex === 0
+          const isLast = serviceIndex === activeServices.length - 1
 
-        return (
-          <section
-            key={service.id}
-            className="grid grid-cols-[48px,1fr] items-start gap-6"
-          >
-            <div className="relative flex justify-center">
-              {!isFirst && (
-                <span className="absolute bottom-1/2 top-0 w-px translate-y-2 bg-slate-200" />
-              )}
-              {!isLast && (
-                <span className="absolute bottom-0 top-1/2 w-px -translate-y-2 bg-slate-200" />
-              )}
-              <span
-                className="relative z-10 mt-2 h-4 w-4 rounded-full border-2 border-white shadow"
-                style={{ backgroundColor: service.accentColor }}
-              />
-            </div>
+          return (
+            <section key={service.id} className="grid grid-cols-[48px,1fr] items-start gap-6">
+              <div className="relative min-h-[16px] pt-2">
+                {!isFirst && (
+                  <span className="pointer-events-none absolute left-1/2 top-0 bottom-1/2 w-[2px] -translate-x-1/2 bg-white/80" />
+                )}
+                {!isLast && (
+                  <span className="pointer-events-none absolute left-1/2 top-1/2 bottom-0 w-[2px] -translate-x-1/2 bg-white/80" />
+                )}
+                <span
+                  className="pointer-events-none absolute left-1/2 top-2 z-10 h-4 w-4 -translate-x-1/2 rounded-full border-2 border-white shadow"
+                  style={{ backgroundColor: service.accentColor }}
+                />
+              </div>
 
             <div className="rounded-3xl border border-slate-200 bg-white/85 p-6 shadow-sm backdrop-blur">
               <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -152,10 +151,11 @@ export function TimelineBoard({ tasks, selectedServices, highlightedTaskIds }: T
                   ))
                 )}
               </div>
-            </div>
-          </section>
-        )
-      })}
+              </div>
+            </section>
+          )
+        })}
+      </div>
     </div>
   )
 }

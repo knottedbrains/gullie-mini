@@ -465,5 +465,6 @@ export function instantiateTemplateTask(
     sequence,
     lastUpdatedAt: new Date().toISOString(),
     templateSlug: template.slug,
+    extraInfo: [],
   }
 }

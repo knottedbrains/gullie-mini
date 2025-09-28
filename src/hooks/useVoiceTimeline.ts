@@ -53,10 +53,12 @@ const SESSION_INSTRUCTIONS = `You are Gullie, a relocation voice specialist guid
 - Always greet with: "Hi, I see that you have a move started from {from_city} to {to_city}." Do not ask them to confirm the cities unless you are missing that information.
 - Begin every session by calling get_relocation() and list_selected_services().
 - Check recent progress by calling list_tasks with status="in_progress" and limit=5, then ask for updates.
-- Ask one discovery question at a time about immigration, housing, shipping, finance, and education.
+- Ask one discovery question at a time about immigration, housing, shipping, finance, education, pets, and lifestyle.
 - Whenever the user shares their origin or destination cities (or confirms their route), call set_relocation_profile({ from_city, to_city, move_date? }) so the UI updates immediately.
 - The UI is a single timeline view. Do not call navigate_view unless absolutely necessary.
 - When a user hints at a need, immediately call select_service (or select_services) with the canonical service IDs, then call add_service_tasks so the cards appear without delay.
+- When the user confirms a temporary accommodation booking, call record_temp_stay({ hotel_name, confirmation_number, check_in_date, check_out_date, address? }).
+- When the user wants to review hotel options, call suggest_temp_stays({ options: [...] }) with up to three tailored choices (each containing name, nightly_rate/price, url, and notes).
 - When tasks are reported complete, call update_tasks or complete_tasks and provide a brief summary.
 - End each spoken response with a short next-step question.
 - Remember what the user said earlier in the conversation and reference it naturally.
@@ -91,6 +93,11 @@ function normalize(text: string) {
     .replace(/&/g, ' and ')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
+}
+
+function slugify(text: string) {
+  const base = normalize(text).replace(/\s+/g, '-')
+  return base.length ? base.slice(0, 40) : 'option'
 }
 
 const serviceLookup = (() => {
@@ -250,6 +257,26 @@ function createToolHandlers(context: ToolHandlerContext) {
       }
     }
     tasksRef.current = appended
+  }
+
+  const updateTaskRef = (task: TimelineTask) => {
+    const without = tasksRef.current.filter((item) => item.id !== task.id)
+    tasksRef.current = [...without, task]
+  }
+
+  const removeTempOptionTasks = () => {
+    const filtered = tasksRef.current.filter(
+      (task) => !(task.serviceId === 'temp_accommodation' && task.templateSlug === 'temp_option'),
+    )
+    tasksRef.current = filtered
+    replaceTasks(filtered)
+  }
+
+  const formatDateLabel = (value?: string) => {
+    if (!value) return undefined
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) return value
+    return parsed.toLocaleDateString()
   }
 
   type Handler = (payload: any) => Promise<ToolResult>
@@ -462,6 +489,107 @@ function createToolHandlers(context: ToolHandlerContext) {
         dispatchUiMessage(`Relocation route updated: ${origin} → ${destination}`)
       }
       return { success: true, profile: next }
+    },
+    record_temp_stay: async ({
+      hotel_name,
+      confirmation_number,
+      check_in_date,
+      check_out_date,
+      address,
+    }: {
+      hotel_name?: string
+      confirmation_number?: string
+      check_in_date?: string
+      check_out_date?: string
+      address?: string
+    }) => {
+      if (!hotel_name || !confirmation_number) {
+        return { success: false, message: 'hotel_name and confirmation_number are required.' }
+      }
+      const checkIn = formatDateLabel(check_in_date)
+      const checkOut = formatDateLabel(check_out_date)
+      const descriptionParts = [
+        'Confirmed temporary stay for your arrival window.',
+        address ? `Address: ${address}.` : null,
+      ].filter(Boolean)
+      const taskId = 'task-temp_accommodation-confirmed-stay'
+      const task: TimelineTask = {
+        id: taskId,
+        serviceId: 'temp_accommodation',
+        title: `Confirmed stay · ${hotel_name}`,
+        description: descriptionParts.join(' '),
+        timeframe: 'Landing',
+        status: 'in_progress',
+        sequence: tasksRef.current.length + 1,
+        lastUpdatedAt: new Date().toISOString(),
+        templateSlug: 'temp_stay_confirmation',
+        extraInfo: [
+          { label: 'Confirmation', value: confirmation_number },
+          checkIn ? { label: 'Check-in', value: checkIn } : null,
+          checkOut ? { label: 'Check-out', value: checkOut } : null,
+          address ? { label: 'Address', value: address } : null,
+        ].filter((item): item is NonNullable<typeof item> => Boolean(item)),
+      }
+      updateTaskRef(task)
+      upsertTask(task)
+      dispatchHighlight({ ids: [taskId], action: 'updated' })
+      dispatchUiMessage(`Temporary stay confirmed at ${hotel_name}`)
+      return { success: true, task }
+    },
+    suggest_temp_stays: async ({
+      options = [],
+    }: {
+      options?: Array<{
+        name?: string
+        hotel_name?: string
+        description?: string
+        nightly_rate?: string
+        price?: string
+        url?: string
+        address?: string
+        distance?: string
+        note?: string
+      }>
+    }) => {
+      if (!Array.isArray(options) || options.length === 0) {
+        return { success: false, message: 'No options provided.' }
+      }
+      removeTempOptionTasks()
+      const limited = options.slice(0, 3)
+      const created: TimelineTask[] = []
+      limited.forEach((option, index) => {
+        const displayName = option.name ?? option.hotel_name ?? `Option ${index + 1}`
+        const slug = slugify(displayName)
+        const price = option.price ?? option.nightly_rate
+        const extraInfo: NonNullable<TimelineTask['extraInfo']> = []
+        if (price) extraInfo.push({ label: 'Nightly rate', value: price })
+        if (option.distance) extraInfo.push({ label: 'Distance', value: option.distance })
+        if (option.address) extraInfo.push({ label: 'Address', value: option.address })
+        if (option.url) extraInfo.push({ label: 'Link', value: option.url, href: option.url })
+        if (option.note) extraInfo.push({ label: 'Notes', value: option.note })
+
+        const task: TimelineTask = {
+          id: `task-temp_accommodation-option-${slug}-${index}`,
+          serviceId: 'temp_accommodation',
+          title: `Stay option ${index + 1}: ${displayName}`,
+          description: option.description ?? 'Suggested short-term housing to review.',
+          timeframe: 'Kickoff',
+          status: 'pending',
+          sequence: tasksRef.current.length + index + 1,
+          lastUpdatedAt: new Date().toISOString(),
+          templateSlug: 'temp_option',
+          extraInfo,
+        }
+        created.push(task)
+      })
+      const next = [...tasksRef.current, ...created]
+      tasksRef.current = next
+      replaceTasks(next)
+      if (created.length) {
+        dispatchHighlight({ ids: created.map((task) => task.id), action: 'created' })
+        dispatchUiMessage(`Suggested ${created.length} temporary stay option${created.length === 1 ? '' : 's'}`)
+      }
+      return { success: true, created: created.length }
     },
   }
 
@@ -924,9 +1052,11 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
               const callId = payload.item.call_id ?? payload.item.id
               void handleFunctionExecution(callId)
             } else if (payload.item?.type === 'message' && payload.item.role === 'user') {
-              const finalText = extractTextFromParts(payload.item.content)
-              if (finalText.trim()) {
-                appendUserMessage(finalText)
+              const finalFromEvent = extractTextFromParts(payload.item.content)
+              const buffered = userMessage?.trim() ?? ''
+              const candidate = buffered || finalFromEvent.trim()
+              if (candidate) {
+                appendUserMessage(candidate)
               }
               setUserMessage(null)
             }
@@ -1056,6 +1186,52 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
             service_ids: { type: 'array', items: { type: 'string' } },
             ids: { type: 'array', items: { type: 'string' } },
             serviceIds: { type: 'array', items: { type: 'string' } },
+          },
+        },
+      },
+      {
+        type: 'function',
+        name: 'record_temp_stay',
+        description: 'Log confirmed temporary accommodation details so the user sees the booking card',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            hotel_name: { type: 'string' },
+            confirmation_number: { type: 'string' },
+            check_in_date: { type: 'string' },
+            check_out_date: { type: 'string' },
+            address: { type: 'string' },
+          },
+          required: ['hotel_name', 'confirmation_number'],
+        },
+      },
+      {
+        type: 'function',
+        name: 'suggest_temp_stays',
+        description: 'Provide up to three short-term housing options with relevant context',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            options: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  name: { type: 'string' },
+                  hotel_name: { type: 'string' },
+                  description: { type: 'string' },
+                  nightly_rate: { type: 'string' },
+                  price: { type: 'string' },
+                  url: { type: 'string' },
+                  address: { type: 'string' },
+                  distance: { type: 'string' },
+                  note: { type: 'string' },
+                },
+              },
+            },
           },
         },
       },

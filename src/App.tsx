@@ -101,34 +101,27 @@ function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white">
       <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-12 px-6 pb-32 pt-20">
-        <section className="relative overflow-hidden rounded-4xl border border-white/5 bg-white/5 px-10 py-14 shadow-[0_30px_60px_-30px_rgba(15,23,42,0.45)] backdrop-blur-lg">
-          <div className="relative z-10 flex flex-col gap-10 text-center">
-            <div className="space-y-4">
-              <p className="text-sm uppercase tracking-[0.25em] text-sky-300/80">Gullie Move OS</p>
-              <h1 className="text-4xl font-semibold text-white sm:text-5xl">
-                Your relocation copilot
-              </h1>
-              <p className="mx-auto max-w-2xl text-base text-slate-200/90">
-                Summon the voice assistant and describe your move. Gullie listens, builds a personal timeline, and keeps your tasks on track as you speak.
+        <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/10 px-8 py-10 shadow-[0_20px_50px_-25px_rgba(15,23,42,0.45)] backdrop-blur-md">
+          <div className="relative z-10 flex flex-col items-center gap-6 text-center">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.3em] text-sky-300/80">Gullie Mini</p>
+              <h1 className="text-3xl font-semibold text-white sm:text-4xl">Relocation copilot</h1>
+              <p className="mx-auto max-w-xl text-sm text-slate-200/90">
+                Describe your move and we’ll build the timeline, line up services, and keep everything on schedule.
               </p>
             </div>
-            <div>
-              <button
-                type="button"
-                onClick={handleStartVoice}
-                className="inline-flex items-center gap-3 rounded-full bg-sky-500 px-6 py-3 text-base font-semibold text-white shadow-lg shadow-sky-500/30 transition hover:bg-sky-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200"
-              >
-                <span className="inline-flex h-3 w-3 animate-pulse rounded-full bg-white" />
-                Speak to the voice assistant
-              </button>
-              <p className="mt-3 text-xs font-medium uppercase tracking-wide text-slate-300/80">
-                Starts from an empty timeline — adds services and steps as you narrate your journey
-              </p>
-            </div>
+            <button
+              type="button"
+              onClick={handleStartVoice}
+              className="inline-flex items-center gap-3 rounded-full bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/30 transition hover:bg-sky-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200"
+            >
+              <span className="inline-flex h-2.5 w-2.5 animate-pulse rounded-full bg-white" />
+              Talk to us
+            </button>
           </div>
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-10 bottom-0 h-40 rounded-t-full bg-sky-500/30 blur-3xl"
+            className="pointer-events-none absolute inset-x-8 bottom-0 h-28 rounded-t-full bg-sky-500/20 blur-3xl"
           />
         </section>
 
