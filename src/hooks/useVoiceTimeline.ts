@@ -258,6 +258,96 @@ function createToolHandlers(context: ToolHandlerContext) {
     resetTimeline,
   } = context
 
+  const matchTasksByIdentifier = (identifier: string): TimelineTask[] => {
+    const trimmed = typeof identifier === 'string' ? identifier.trim() : ''
+    if (!trimmed) {
+      return []
+    }
+
+    const lower = trimmed.toLowerCase()
+    const normalized = normalize(trimmed)
+    const tasks = tasksRef.current
+
+    const directMatches = tasks.filter((task) => task.id === trimmed || task.id.toLowerCase() === lower)
+    if (directMatches.length) {
+      return directMatches
+    }
+
+    const slugMatches = tasks.filter((task) => {
+      if (!task.templateSlug) return false
+      const slugLower = task.templateSlug.toLowerCase()
+      if (slugLower === lower) return true
+      if (normalize(task.templateSlug) === normalized) return true
+      const composite = `task-${task.serviceId}-${task.templateSlug}`.toLowerCase()
+      if (composite === lower) return true
+      if (normalize(composite) === normalized) return true
+      return false
+    })
+
+    if (slugMatches.length) {
+      return slugMatches
+    }
+
+    const titleMatches = tasks.filter((task) => {
+      const titleLower = task.title.toLowerCase()
+      if (titleLower === lower) return true
+      if (normalize(task.title) === normalized) return true
+      return false
+    })
+
+    if (titleMatches.length) {
+      return titleMatches
+    }
+
+    const suffixMatches = tasks.filter((task) => task.id.toLowerCase().endsWith(lower))
+    if (suffixMatches.length) {
+      return suffixMatches
+    }
+
+    const partialMatches = tasks.filter((task) => task.id.toLowerCase().includes(lower))
+    if (partialMatches.length === 1) {
+      return partialMatches
+    }
+
+    return []
+  }
+
+  const resolveTasksForIdentifiers = (identifiers: string[]) => {
+    const uniqueTasks: TimelineTask[] = []
+    const seen = new Set<string>()
+    const unmatched: string[] = []
+
+    identifiers.forEach((identifier) => {
+      const matches = matchTasksByIdentifier(identifier)
+      if (!matches.length) {
+        if (identifier && identifier.trim()) {
+          unmatched.push(identifier)
+        }
+        return
+      }
+      matches.forEach((task) => {
+        if (!seen.has(task.id)) {
+          seen.add(task.id)
+          uniqueTasks.push(task)
+        }
+      })
+    })
+
+    return { tasks: uniqueTasks, unmatched }
+  }
+
+  const resolveSingleTaskByIdentifier = (identifier: string): { task?: TimelineTask; matchedId?: string } => {
+    const matches = matchTasksByIdentifier(identifier)
+    if (!matches.length) {
+      return {}
+    }
+    if (matches.length === 1) {
+      return { task: matches[0], matchedId: matches[0].id }
+    }
+    const preferred = matches.find((task) => task.status !== 'completed') ?? matches[0]
+    return { task: preferred, matchedId: preferred.id }
+  }
+
   const ensureTasksRefUpdated = (tasksRef: MutableRefObject<TimelineTask[]>, created: TimelineTask[]) => {
     if (!created.length) return
     const known = new Set(tasksRef.current.map((task) => task.id))
@@ -372,7 +462,9 @@ function createToolHandlers(context: ToolHandlerContext) {
     const merged = Array.from(new Set([...selectedServicesRef.current, ...resolved]))
     selectedServicesRef.current = merged
     setSelectedServices(merged)
-    dispatchCategories(merged)
+    if (merged.length) {
+      dispatchCategories(merged)
+    }
     const created: Record<string, number> = {}
     for (const serviceId of resolved) {
       const generated = buildServiceTasks(serviceId)
@@ -396,6 +488,12 @@ function createToolHandlers(context: ToolHandlerContext) {
     }
     const id = resolved[0]
     const generated = buildServiceTasks(id)
+    if (!selectedServicesRef.current.includes(id)) {
+      const next = Array.from(new Set([...selectedServicesRef.current, id]))
+      selectedServicesRef.current = next
+      setSelectedServices(next)
+      dispatchCategories(next)
+    }
     ensureTasksRefUpdated(tasksRef, generated)
     if (generated.length) {
       dispatchHighlight({ ids: generated.map((task) => task.id), action: 'created' })
@@ -415,7 +513,7 @@ function createToolHandlers(context: ToolHandlerContext) {
       return { success: false, message: 'No matching services to unselect.' }
     }
     const remaining = selectedServicesRef.current.filter((id) => !resolved.includes(id))
-    const next = remaining.length ? remaining : selectedServicesRef.current
+    const next = remaining
     selectedServicesRef.current = next
     setSelectedServices(next)
     dispatchCategories(next)
@@ -535,29 +633,36 @@ function createToolHandlers(context: ToolHandlerContext) {
       return { success: true, actions: combined.length }
     },
     complete_tasks: async ({ ids = [] }: { ids?: string[] }) => {
-      console.info('[voice] complete_tasks', ids)
-      const updated: string[] = []
-      for (const id of ids) {
-        if (tasksRef.current.some((task) => task.id === id)) {
-          updateTaskStatus(id, 'completed')
-          updated.push(id)
-        }
+      const identifiers = Array.isArray(ids) ? ids : []
+      console.info('[voice] complete_tasks', identifiers)
+      const { tasks: resolvedTasks, unmatched } = resolveTasksForIdentifiers(identifiers)
+      const updatedIds: string[] = []
+
+      resolvedTasks.forEach((task) => {
+        updateTaskStatus(task.id, 'completed')
+        updatedIds.push(task.id)
+      })
+
+      if (updatedIds.length) {
+        dispatchHighlight({ ids: updatedIds, action: 'completed' })
       }
-      if (updated.length) {
-        dispatchHighlight({ ids: updated, action: 'completed' })
+
+      return {
+        success: updatedIds.length > 0,
+        updated: updatedIds,
+        unmatched,
       }
-      return { updated }
     },
     toggle_task: async ({ id }: { id: string }) => {
       console.info('[voice] toggle_task', id)
-      const task = tasksRef.current.find((item) => item.id === id)
-      if (!task) {
+      const { task, matchedId } = resolveSingleTaskByIdentifier(id)
+      if (!task || !matchedId) {
         return { success: false, message: 'Task not found.' }
       }
       const nextStatus = task.status === 'completed' ? 'pending' : 'completed'
-      updateTaskStatus(id, nextStatus)
-      dispatchHighlight({ ids: [id], action: 'touched' })
-      return { success: true, status: nextStatus }
+      updateTaskStatus(matchedId, nextStatus)
+      dispatchHighlight({ ids: [matchedId], action: 'touched' })
+      return { success: true, status: nextStatus, id: matchedId }
     },
     edit_task: async ({ id, updates = {} }: { id: string; updates?: Partial<TimelineTask> }) => {
       console.info('[voice] edit_task', id, updates)

@@ -32,6 +32,191 @@ type QueryStatus = TimelineResearchState['status']
 
 const ACTIVE_STATUSES: QueryStatus[] = ['pending', 'in_progress']
 
+const KNOWN_CITY_COUNTRIES: Record<string, string> = {
+  paris: 'France',
+  london: 'United Kingdom',
+  berlin: 'Germany',
+  munich: 'Germany',
+  hamburg: 'Germany',
+  frankfurt: 'Germany',
+  madrid: 'Spain',
+  barcelona: 'Spain',
+  rome: 'Italy',
+  milan: 'Italy',
+  amsterdam: 'Netherlands',
+  zurich: 'Switzerland',
+  geneva: 'Switzerland',
+  vienna: 'Austria',
+  copenhagen: 'Denmark',
+  stockholm: 'Sweden',
+  oslo: 'Norway',
+  helsinki: 'Finland',
+  'new york': 'United States',
+  'new york city': 'United States',
+  'san francisco': 'United States',
+  'los angeles': 'United States',
+  chicago: 'United States',
+  boston: 'United States',
+  seattle: 'United States',
+  toronto: 'Canada',
+  vancouver: 'Canada',
+  montreal: 'Canada',
+  sydney: 'Australia',
+  melbourne: 'Australia',
+  brisbane: 'Australia',
+  tokyo: 'Japan',
+  singapore: 'Singapore',
+  'hong kong': 'Hong Kong',
+  dublin: 'Ireland',
+  edinburgh: 'United Kingdom',
+  lisbon: 'Portugal',
+  brussels: 'Belgium',
+  prague: 'Czech Republic',
+  budapest: 'Hungary',
+  warsaw: 'Poland',
+  dubai: 'United Arab Emirates',
+  mumbai: 'India',
+  bangalore: 'India',
+  bengaluru: 'India',
+  delhi: 'India',
+  'new delhi': 'India',
+  beijing: 'China',
+  shanghai: 'China',
+  seoul: 'South Korea',
+  bangkok: 'Thailand',
+  'kuala lumpur': 'Malaysia',
+  jakarta: 'Indonesia',
+  manila: 'Philippines',
+  'mexico city': 'Mexico',
+  bogota: 'Colombia',
+  'buenos aires': 'Argentina',
+  'são paulo': 'Brazil',
+  'sao paulo': 'Brazil',
+  'rio de janeiro': 'Brazil',
+  santiago: 'Chile',
+  lima: 'Peru',
+  'tel aviv': 'Israel',
+  cairo: 'Egypt',
+  johannesburg: 'South Africa',
+  'cape town': 'South Africa',
+  nairobi: 'Kenya',
+  lagos: 'Nigeria',
+}
+
+function normalizePlaceholder(value?: string | null) {
+  return value?.trim() ? value.trim() : undefined
+}
+
+function resolveCountryFromCity(city?: string | null) {
+  if (!city) {
+    return undefined
+  }
+  const normalized = city.trim()
+  if (!normalized) {
+    return undefined
+  }
+  const key = normalized.toLowerCase()
+  return KNOWN_CITY_COUNTRIES[key] ?? normalized
+}
+
+function resolveTemplatePlaceholders(query: string, relocationProfile: RelocationProfile): string {
+  const now = new Date()
+  const replacements: Record<string, string | undefined> = {
+    destination_city: normalizePlaceholder(relocationProfile.toCity),
+    destination_country: resolveCountryFromCity(relocationProfile.toCity),
+    origin_city: normalizePlaceholder(relocationProfile.fromCity),
+    origin_country: resolveCountryFromCity(relocationProfile.fromCity),
+    current_year: `${now.getFullYear()}`,
+  }
+
+  let output = query
+  for (const [key, value] of Object.entries(replacements)) {
+    const token = new RegExp(`\\{\\{\s*${key}\s*\\}\}`, 'gi')
+    output = value ? output.replace(token, value) : output.replace(token, '')
+  }
+  return output.replace(/\s{2,}/g, ' ').trim()
+}
+
+function customizeQueryForLocation(query: string, relocationProfile: RelocationProfile): string {
+  if (!query.trim()) {
+    return query
+  }
+  let customizedQuery = resolveTemplatePlaceholders(query, relocationProfile)
+
+  if (!relocationProfile.fromCity && !relocationProfile.toCity) {
+    return customizedQuery
+  }
+
+  if (relocationProfile.toCity) {
+    const destination = relocationProfile.toCity.trim()
+    customizedQuery = customizedQuery.replace(/\bBerlin\b/gi, destination)
+  }
+
+  if (relocationProfile.toCity) {
+    const destinationCountry = resolveCountryFromCity(relocationProfile.toCity)
+    if (destinationCountry) {
+      customizedQuery = customizedQuery.replace(/\bGermany\b/gi, destinationCountry)
+      customizedQuery = customizedQuery.replace(/\bGerman\b/gi, destinationCountry)
+    }
+  }
+
+  if (customizedQuery.toLowerCase().includes('visa') || customizedQuery.toLowerCase().includes('immigration')) {
+    const fromCountry = resolveCountryFromCity(relocationProfile.fromCity) ?? 'origin country'
+    const toCountry = resolveCountryFromCity(relocationProfile.toCity) ?? 'destination country'
+
+    if (relocationProfile.fromCity && relocationProfile.toCity) {
+      customizedQuery = customizedQuery.replace(
+        /visa.*requirements.*for.*citizens/gi,
+        `visa requirements for ${fromCountry} citizens`
+      )
+
+      if (customizedQuery.toLowerCase().includes('biometrics appointment')) {
+        customizedQuery = customizedQuery.replace(
+          /.*biometrics appointment.*/gi,
+          `How to prepare for ${toCountry} visa biometrics appointment in ${relocationProfile.fromCity} ${new Date().getFullYear()}`
+        )
+      }
+    }
+  }
+
+  return customizedQuery
+}
+
+function isLocationAlreadyInQuery(query: string, relocationProfile: RelocationProfile): boolean {
+  const queryLower = query.toLowerCase()
+
+  // Check if query contains country names (more reliable than city names for visa queries)
+  if (relocationProfile.fromCity) {
+    const fromCountry = resolveCountryFromCity(relocationProfile.fromCity)?.toLowerCase()
+    if (fromCountry && queryLower.includes(fromCountry)) {
+      return true
+    }
+  }
+
+  if (relocationProfile.toCity) {
+    const toCountry = resolveCountryFromCity(relocationProfile.toCity)?.toLowerCase()
+    if (toCountry && queryLower.includes(toCountry)) {
+      return true
+    }
+  }
+
+  // Check if query contains city names
+  if (relocationProfile.fromCity && queryLower.includes(relocationProfile.fromCity.toLowerCase())) {
+    return true
+  }
+
+  if (relocationProfile.toCity && queryLower.includes(relocationProfile.toCity.toLowerCase())) {
+    return true
+  }
+
+  // Check for visa-related patterns that indicate location context is already present
+  if (queryLower.includes('visa') || queryLower.includes('biometrics')) {
+    return true // Don't add extra location info to visa queries that are already customized
+  }
+
+  return false
+}
+
 function buildSuggestedQuery(
   action: ResearchAction,
   task: TimelineTask,
@@ -39,20 +224,50 @@ function buildSuggestedQuery(
   relocationProfile: RelocationProfile,
 ) {
   const pieces: string[] = []
+
   if (action.defaultQuery?.trim()) {
-    pieces.push(action.defaultQuery.trim())
+    // Customize the default query based on relocation profile
+    const customizedQuery = customizeQueryForLocation(action.defaultQuery.trim(), relocationProfile)
+    pieces.push(customizedQuery)
+
+    // For customized queries, don't add extra location info
+    if (isLocationAlreadyInQuery(customizedQuery, relocationProfile)) {
+      // Only add timeframe if present
+      if (task.timeframe?.trim()) {
+        pieces.push(`timeline ${task.timeframe.trim()}`)
+      }
+
+      // Add move date if available and not a visa query
+      if (relocationProfile.moveDate && !customizedQuery.toLowerCase().includes('visa')) {
+        const formatted = new Date(relocationProfile.moveDate)
+        if (!Number.isNaN(formatted.getTime())) {
+          pieces.push(
+            `for ${formatted.toLocaleDateString(undefined, {
+              month: 'long',
+              year: 'numeric',
+            })}`,
+          )
+        }
+      }
+
+      return pieces.join(' ').replace(/\s+/g, ' ').trim()
+    }
   } else {
     pieces.push(`${task.title} ${serviceLabel.toLowerCase()}`)
   }
+
+  // For non-customized queries or queries without location context, add location info
   if (task.timeframe?.trim()) {
     pieces.push(`timeline ${task.timeframe.trim()}`)
   }
+
   if (relocationProfile.toCity) {
     pieces.push(`in ${relocationProfile.toCity}`)
   }
   if (relocationProfile.fromCity) {
     pieces.push(`from ${relocationProfile.fromCity}`)
   }
+
   if (relocationProfile.moveDate) {
     const formatted = new Date(relocationProfile.moveDate)
     if (!Number.isNaN(formatted.getTime())) {
@@ -64,6 +279,7 @@ function buildSuggestedQuery(
       )
     }
   }
+
   return pieces.join(' ').replace(/\s+/g, ' ').trim()
 }
 

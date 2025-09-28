@@ -17,20 +17,26 @@ const ENRICHMENTS: TaskEnrichment[] = [
       {
         type: 'research',
         label: 'Research destination rental insights',
-        defaultQuery: 'Current rental market insights for family-friendly neighborhoods in Berlin',
+        defaultQuery: 'How {{destination_city}} family neighborhoods compare on rent, schools, commute, and expat fit {{current_year}}',
         hint: 'Pull recent articles or listings to compare pricing with the assigned budget.',
         id: 'lease-research-insights',
       },
     ],
   },
   {
-    id: 'task-housing-tour',
-    title: 'Schedule virtual tours',
+    templateSlug: 'viewings',
+    serviceId: 'housing',
     actions: [
+      {
+        type: 'housing_search',
+        label: 'Find Apartment Listings',
+        instructions: 'Enter your budget, preferred number of bedrooms, and city to get top rental listings from Zillow.',
+        id: 'housing-search-main',
+      },
       {
         type: 'research',
         label: 'Find recent virtual tour tips',
-        defaultQuery: 'Best practices for virtual apartment tours in Berlin 2025',
+        defaultQuery: 'How relocation teams run virtual apartment tours with {{destination_city}} realtors {{current_year}}',
         id: 'tour-research-tips',
       },
       {
@@ -51,7 +57,7 @@ const ENRICHMENTS: TaskEnrichment[] = [
       {
         type: 'research',
         label: 'Check latest visa guidance',
-        defaultQuery: 'Latest Germany work visa documentation requirements for US citizens 2025',
+        defaultQuery: '{{destination_country}} work visa supporting document checklist for {{destination_city}} consulate appointments {{current_year}}',
         id: 'immigration-packet-research',
       },
       {
@@ -70,7 +76,7 @@ const ENRICHMENTS: TaskEnrichment[] = [
       {
         type: 'research',
         label: 'Research neighborhood insights',
-        defaultQuery: 'Family-friendly neighborhoods in Berlin with international schools and easy transit',
+        defaultQuery: '{{destination_city}} neighborhoods with international schools, parks, and 20-minute commutes {{current_year}}',
         id: 'neighborhood-research-insights',
       },
     ],
@@ -82,7 +88,7 @@ const ENRICHMENTS: TaskEnrichment[] = [
       {
         type: 'research',
         label: 'Compare viewing options',
-        defaultQuery: 'Virtual apartment tour services reviews 2025 Germany',
+        defaultQuery: 'Questions to ask during {{destination_city}} virtual apartment viewings for expats {{current_year}}',
         id: 'viewings-research-options',
       },
     ],
@@ -94,7 +100,7 @@ const ENRICHMENTS: TaskEnrichment[] = [
       {
         type: 'research',
         label: 'Biometrics appointment prep',
-        defaultQuery: 'How to prepare for Germany visa biometrics appointment 2025',
+        defaultQuery: '{{destination_country}} visa biometrics appointment preparation steps for relocating employees {{current_year}}',
         id: 'biometrics-research-prep',
       },
       {
@@ -114,7 +120,7 @@ const ENRICHMENTS: TaskEnrichment[] = [
       {
         type: 'research',
         label: 'Moving company research',
-        defaultQuery: 'Best international moving companies from San Francisco to Berlin 2025',
+        defaultQuery: 'Top international moving companies handling {{origin_city}} to {{destination_city}} relocations {{current_year}}',
         id: 'moving-research-companies',
       },
       {

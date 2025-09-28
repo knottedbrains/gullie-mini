@@ -63,6 +63,12 @@ export type TaskAction =
       hint?: string
       id?: string
     }
+  | {
+      type: 'housing_search'
+      label: string
+      instructions?: string
+      id?: string
+    }
 
 export interface TimelineResearchState {
   lastQueryId?: string

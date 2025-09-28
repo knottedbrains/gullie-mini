@@ -118,10 +118,19 @@ export function useTimelineState(): UseTimelineStateResult {
         return
       }
       setSelectedServicesState((prev) => {
-        const next = detail.activeCategories.filter((id): id is ServiceId =>
+        const incoming = detail.activeCategories.filter((id): id is ServiceId =>
           serviceIds.includes(id),
         )
-        return next.length > 0 ? next : prev
+
+        if (!incoming.length) {
+          return prev
+        }
+
+        const merged = Array.from(new Set([...prev, ...incoming]))
+        if (merged.length === prev.length && merged.every((id, index) => id === prev[index])) {
+          return prev
+        }
+        return merged
       })
     }
 

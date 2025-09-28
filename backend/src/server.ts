@@ -10,6 +10,7 @@ import {
   listQueriesForTask,
 } from './storage/researchStore'
 import { runWebResearch } from './services/webResearch'
+import { searchHousingListings, type HousingSearchParams } from './services/housingSearch'
 
 dotenv.config({ path: path.resolve(__dirname, '../.env') })
 
@@ -95,6 +96,43 @@ app.get('/api/research/query/:queryId', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Failed to load research query', error)
     res.status(500).json({ error: 'Failed to load research query' })
+  }
+})
+
+// Housing search endpoint
+app.post('/api/housing/search', async (req: Request, res: Response) => {
+  const { location, minPrice, maxPrice, bedrooms, bathrooms, propertyType, maxResults } = req.body ?? {}
+
+  if (typeof location !== 'string' || !location.trim()) {
+    return res.status(400).json({
+      top_picks: [],
+      error: 'Location is required for housing search'
+    })
+  }
+
+  try {
+    const searchParams: HousingSearchParams = {
+      location: location.trim(),
+      minPrice: typeof minPrice === 'number' ? minPrice : undefined,
+      maxPrice: typeof maxPrice === 'number' ? maxPrice : undefined,
+      bedrooms: typeof bedrooms === 'number' ? bedrooms : undefined,
+      bathrooms: typeof bathrooms === 'number' ? bathrooms : undefined,
+      propertyType: typeof propertyType === 'string' &&
+        ['apartment', 'house', 'condo', 'townhouse'].includes(propertyType)
+        ? propertyType as any : undefined,
+      maxResults: typeof maxResults === 'number' ? maxResults : undefined,
+    }
+
+    console.log('[housing] Search request:', searchParams)
+    const result = await searchHousingListings(searchParams)
+
+    res.json(result)
+  } catch (error) {
+    console.error('[housing] API error:', error)
+    res.status(500).json({
+      top_picks: [],
+      error: 'Housing search service is temporarily unavailable'
+    })
   }
 })
 

@@ -1,15 +1,17 @@
-import { CheckCheck, Clock } from 'lucide-react'
+import { CheckCheck, Check, Clock } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { RelocationProfile, TaskAction, TimelineTask } from '../types/timeline'
 import { ResearchActionCard } from './ResearchActionCard'
 import { BookingActionCard } from './BookingActionCard'
 import { UploadActionCard } from './UploadActionCard'
+import { HousingSearchActionCard } from './HousingSearchActionCard'
 
 type ResearchAction = Extract<TaskAction, { type: 'research' }>
 type BookingAction = Extract<TaskAction, { type: 'booking' }>
 type UploadAction = Extract<TaskAction, { type: 'upload' }>
 type LinkAction = Extract<TaskAction, { type: 'link' }>
 type NoteAction = Extract<TaskAction, { type: 'note' }>
+type HousingSearchAction = Extract<TaskAction, { type: 'housing_search' }>
 
 interface TaskCardProps {
   task: TimelineTask
@@ -48,6 +50,9 @@ export function TaskCard({
   const noteActions: NoteAction[] = (task.actions ?? []).filter(
     (action): action is NoteAction => action.type === 'note',
   )
+  const housingSearchActions: HousingSearchAction[] = (task.actions ?? []).filter(
+    (action): action is HousingSearchAction => action.type === 'housing_search',
+  )
 
   return (
     <article
@@ -73,14 +78,20 @@ export function TaskCard({
             {task.timeframe}
           </span>
           {onToggleStatus ? (
-            <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+            <label className="group inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
               <input
                 type="checkbox"
                 checked={isComplete}
                 onChange={() => onToggleStatus(task.id, isComplete ? 'pending' : 'completed')}
-                className="h-3 w-3 rounded border border-slate-400 text-sky-400 focus:ring-sky-300"
+                className="peer sr-only"
+                aria-label={isComplete ? 'Mark task as not done' : 'Mark task as done'}
               />
-              Done
+              <span className="relative flex h-5 w-5 items-center justify-center rounded-md border border-slate-500/50 bg-slate-900/60 transition-colors duration-200 group-hover:border-slate-300/70 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-sky-400 peer-checked:border-emerald-400/80 peer-checked:bg-emerald-500/80">
+                <Check className="h-3.5 w-3.5 text-transparent transition-colors duration-150 peer-checked:text-white" />
+              </span>
+              <span className="transition-colors duration-150 group-hover:text-slate-200 peer-checked:text-emerald-200">
+                Done
+              </span>
             </label>
           ) : null}
         </div>
@@ -196,6 +207,14 @@ export function TaskCard({
             <p key={`${task.id}-note-${index}`} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
               {action.text}
             </p>
+          ))}
+        </div>
+      ) : null}
+
+      {housingSearchActions.length ? (
+        <div className="space-y-3">
+          {housingSearchActions.map((action, index) => (
+            <HousingSearchActionCard key={`${task.id}-housing-${index}`} taskId={task.id} action={action} />
           ))}
         </div>
       ) : null}

@@ -4,12 +4,17 @@ export const initialTasks: TimelineTask[] = [
   {
     id: 'task-housing-lease',
     serviceId: 'housing',
-    title: 'Review shortlist of apartments',
-    description: 'Evaluate the top three properties surfaced by the agent and flag preferences.',
+    title: 'Search for apartments',
+    description: 'Find and evaluate rental properties based on your budget and preferences.',
     timeframe: 'Day 3',
     status: 'pending',
     sequence: 1,
     actions: [
+      {
+        type: 'housing_search',
+        label: 'Find Apartment Listings',
+        instructions: 'Enter your budget, preferred number of bedrooms, and city to get top rental listings from Zillow.',
+      },
       {
         type: 'research',
         label: 'Research destination rental insights',
