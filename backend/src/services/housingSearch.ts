@@ -70,6 +70,14 @@ function extractImageUrl(images: any[]): string {
   return 'https://via.placeholder.com/400x300?text=No+Image'
 }
 
+function generateZillowSearchUrl(address: string, zipCode: string): string {
+  // Create a Zillow search URL based on address and location
+  // This is a fallback if the API doesn't provide direct listing URLs
+  const cleanAddress = address.replace(/[^\w\s]/g, '').replace(/\s+/g, '-').toLowerCase()
+  const searchQuery = encodeURIComponent(`${address} ${zipCode}`)
+  return `https://www.zillow.com/homes/${searchQuery}_rb/`
+}
+
 function scoreProperty(property: any, params: HousingSearchParams): number {
   let score = 0
 
@@ -156,6 +164,7 @@ export async function searchHousingListings(params: HousingSearchParams): Promis
 
     const input = {
       zip_code: zipCode,
+      listing_type: 'for_rent', // Get rental listings instead of for-sale
     }
 
     console.log('[housing] Starting Zillow search with params:', input)
@@ -205,7 +214,7 @@ export async function searchHousingListings(params: HousingSearchParams): Promis
           num_bathrooms: parseFloat(item.bathrooms?.toString() || '0'),
           description: item.description || 'Description not available',
           image_url: extractImageUrl(item.images || []),
-          zillow_url: item.url || item.link || item.href || item.zillowUrl || item.listing_url || item.propertyUrl || item.detailUrl || '',
+          zillow_url: item.detailUrl || item.url || item.link || item.href || item.zillowUrl || item.listing_url || item.propertyUrl || '',
           score: scoreProperty(item, params),
         }
         return listing
