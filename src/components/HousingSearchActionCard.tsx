@@ -187,48 +187,81 @@ export function HousingSearchActionCard({ action }: HousingSearchActionCardProps
               <h4 className="text-sm font-medium text-white">Top Picks</h4>
               <div className="space-y-3">
                 {results.top_picks.map((listing, index) => (
-                  <div
-                    key={index}
-                    className="rounded-md border border-white/15 bg-white/5 p-3 transition-colors hover:bg-white/10"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-white">{listing.price}</span>
-                          {listing.num_bedrooms > 0 && (
-                            <span className="text-xs text-slate-300">
-                              {listing.num_bedrooms} bed{listing.num_bedrooms !== 1 ? 's' : ''}
-                            </span>
-                          )}
-                          {listing.num_bathrooms > 0 && (
-                            <span className="text-xs text-slate-300">
-                              {listing.num_bathrooms} bath{listing.num_bathrooms !== 1 ? 's' : ''}
-                            </span>
+                  <div key={index}>
+                    {listing.zillow_url ? (
+                      <a
+                        href={listing.zillow_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block rounded-md border border-white/15 bg-white/5 p-3 transition-all hover:bg-white/10 hover:border-blue-400/50 cursor-pointer"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-white">{listing.price}</span>
+                              {listing.num_bedrooms > 0 && (
+                                <span className="text-xs text-slate-300">
+                                  {listing.num_bedrooms} bed{listing.num_bedrooms !== 1 ? 's' : ''}
+                                </span>
+                              )}
+                              {listing.num_bathrooms > 0 && (
+                                <span className="text-xs text-slate-300">
+                                  {listing.num_bathrooms} bath{listing.num_bathrooms !== 1 ? 's' : ''}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-300">{listing.address}</p>
+                            {listing.description !== 'Description not available' && (
+                              <p className="text-xs text-slate-400">{listing.description}</p>
+                            )}
+                            <div className="mt-2">
+                              <span className="inline-flex items-center gap-1 text-xs text-blue-400">
+                                View on Zillow →
+                              </span>
+                            </div>
+                          </div>
+                          {listing.image_url && !listing.image_url.includes('placeholder') && (
+                            <img
+                              src={listing.image_url}
+                              alt="Property"
+                              className="h-12 w-16 rounded object-cover"
+                            />
                           )}
                         </div>
-                        <p className="text-xs text-slate-300">{listing.address}</p>
-                        {listing.description !== 'Description not available' && (
-                          <p className="text-xs text-slate-400">{listing.description}</p>
-                        )}
-                      </div>
-                      {listing.image_url && !listing.image_url.includes('placeholder') && (
-                        <img
-                          src={listing.image_url}
-                          alt="Property"
-                          className="h-12 w-16 rounded object-cover"
-                        />
-                      )}
-                    </div>
-                    {listing.zillow_url && (
-                      <div className="mt-2">
-                        <a
-                          href={listing.zillow_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 hover:underline"
-                        >
-                          View on Zillow →
-                        </a>
+                      </a>
+                    ) : (
+                      <div className="rounded-md border border-white/15 bg-white/5 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-white">{listing.price}</span>
+                              {listing.num_bedrooms > 0 && (
+                                <span className="text-xs text-slate-300">
+                                  {listing.num_bedrooms} bed{listing.num_bedrooms !== 1 ? 's' : ''}
+                                </span>
+                              )}
+                              {listing.num_bathrooms > 0 && (
+                                <span className="text-xs text-slate-300">
+                                  {listing.num_bathrooms} bath{listing.num_bathrooms !== 1 ? 's' : ''}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-300">{listing.address}</p>
+                            {listing.description !== 'Description not available' && (
+                              <p className="text-xs text-slate-400">{listing.description}</p>
+                            )}
+                            <div className="mt-2">
+                              <span className="text-xs text-slate-500">No URL available</span>
+                            </div>
+                          </div>
+                          {listing.image_url && !listing.image_url.includes('placeholder') && (
+                            <img
+                              src={listing.image_url}
+                              alt="Property"
+                              className="h-12 w-16 rounded object-cover"
+                            />
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>

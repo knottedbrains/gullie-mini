@@ -59,9 +59,10 @@ const MODEL = 'gpt-4o-realtime-preview-2024-12-17'
 
 const instructionsDefault = [
   'You are the Gullie voice assistant. Keep responses concise and friendly. Always respond in English unless the user explicitly switches languages.',
-  'At session start call get_relocation, greet with “Hi, I see that you have a move started from {from_city} to {to_city}.” If a city is missing say “your current move” instead. Then call list_selected_services and list_tasks(status="in_progress", limit=5) so you can proactively ask for updates.',
+  'At session start call get_relocation, greet with "Hi, I see that you have a move started from {from_city} to {to_city}." If a city is missing say "your current move" instead. Then call list_selected_services and list_tasks(status="in_progress", limit=5) so you can proactively ask for updates.',
   'Guide the user through immigration/visa, housing (short-term and long-term), moving/shipping, finance, healthcare, transportation, education/children, pets, lifestyle, tax, spouse job, and settling. Ask one clear question at a time and keep nudging forward if the user is quiet.',
   'Always call navigate_view("timeline") before service operations (select_services, unselect_services, record_temp_stay, suggest_temp_stays, set_task_actions). Always call navigate_view("dashboard") before task operations (list_tasks, update_tasks, edit_task, toggle_task, complete_tasks).',
+  'IMPORTANT: The select_services function ADDS services to the existing list - it does NOT replace them. When a user mentions new topics like "housing" or "visa", call select_services to ADD those services while keeping previously selected services active. NEVER call unselect_services or reset_timeline unless explicitly asked.',
   'Canonical service IDs: immigration, temp_accommodation, housing, finances, healthcare, transportation, lifestyle, education, children, pets, moving, tax, spouse_job, settling. Use these exact IDs when calling select_services/unselect_services.',
   'When the user confirms a temporary stay, call record_temp_stay({ hotel_name, confirmation_number, check_in_date?, check_out_date?, address? }) so the timeline shows the booking details. When they want options, call suggest_temp_stays({ options }) with up to three entries (name, price/night, url, notes, etc.).',
   'If the user wants to clear everything and begin a new move, call reset_timeline().',
@@ -454,12 +455,21 @@ function createToolHandlers(context: ToolHandlerContext) {
       .filter((value): value is string[] | string => value !== undefined)
       .flatMap((value) => (Array.isArray(value) ? value : [value]))
     const inputs = collected.length ? collected : []
-    console.info('[voice] select_services', inputs)
+    console.info('[voice] select_services - BEFORE:', {
+      inputs,
+      currentServices: selectedServicesRef.current.slice(),
+      requestedServices: inputs
+    })
     const resolved = resolveServiceIds(inputs)
     if (!resolved.length) {
       return { success: false, message: 'No matching services found.' }
     }
     const merged = Array.from(new Set([...selectedServicesRef.current, ...resolved]))
+    console.info('[voice] select_services - AFTER:', {
+      resolved,
+      previousServices: selectedServicesRef.current.slice(),
+      mergedServices: merged.slice()
+    })
     selectedServicesRef.current = merged
     setSelectedServices(merged)
     if (merged.length) {
@@ -507,7 +517,10 @@ function createToolHandlers(context: ToolHandlerContext) {
       .filter((value): value is string[] | string => value !== undefined)
       .flatMap((value) => (Array.isArray(value) ? value : [value]))
     const inputs = collected.length ? collected : []
-    console.info('[voice] unselect_services', inputs)
+    console.info('[voice] unselect_services - CALLED:', {
+      inputs,
+      currentServices: selectedServicesRef.current.slice()
+    })
     const resolved = resolveServiceIds(inputs)
     if (!resolved.length) {
       return { success: false, message: 'No matching services to unselect.' }
@@ -745,8 +758,15 @@ function createToolHandlers(context: ToolHandlerContext) {
       }
       return { success: true, profile: next }
     },
-    reset_timeline: async () => {
-      console.info('[voice] reset_timeline')
+    reset_timeline: async ({ confirm }: { confirm?: string }) => {
+      console.info('[voice] reset_timeline - CALLED! Confirmation:', confirm)
+      if (confirm !== 'yes_clear_everything') {
+        return {
+          success: false,
+          message: 'Reset cancelled. To confirm, use confirm: "yes_clear_everything"'
+        }
+      }
+      console.info('[voice] reset_timeline - CONFIRMED! Clearing all services!')
       resetTimeline()
       tasksRef.current = []
       selectedServicesRef.current = []
@@ -1430,7 +1450,7 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
       {
         type: 'function',
         name: 'select_services',
-        description: 'Enable one or more services for the user timeline',
+        description: 'ADD one or more services to the user timeline (does not remove existing services)',
         parameters: {
           type: 'object',
           additionalProperties: false,
@@ -1445,7 +1465,7 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
       {
         type: 'function',
         name: 'select_service',
-        description: 'Enable a service for the user timeline',
+        description: 'ADD a single service to the user timeline (does not remove existing services)',
         parameters: {
           type: 'object',
           additionalProperties: false,
@@ -1460,7 +1480,7 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
       {
         type: 'function',
         name: 'add_service_tasks',
-        description: 'Generate tasks for a specific service',
+        description: 'ADD a service and generate its tasks (does not remove existing services)',
         parameters: {
           type: 'object',
           additionalProperties: false,
@@ -1474,7 +1494,7 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
       {
         type: 'function',
         name: 'add_service',
-        description: 'Generate tasks for a specific service',
+        description: 'ADD a service and generate its tasks (does not remove existing services)',
         parameters: {
           type: 'object',
           additionalProperties: false,
@@ -1521,8 +1541,19 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
       {
         type: 'function',
         name: 'reset_timeline',
-        description: 'Clear all services, tasks, and relocation details so the user can start from scratch',
-        parameters: { type: 'object', additionalProperties: false, properties: {} },
+        description: 'DANGER: Completely clears ALL services, tasks, and relocation details. Only use when user explicitly says to start over or clear everything.',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            confirm: {
+              type: 'string',
+              enum: ['yes_clear_everything'],
+              description: 'Must be set to "yes_clear_everything" to confirm the reset'
+            }
+          },
+          required: ['confirm']
+        },
       },
       {
         type: 'function',

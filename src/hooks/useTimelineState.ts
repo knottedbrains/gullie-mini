@@ -90,9 +90,9 @@ export function useTimelineState(): UseTimelineStateResult {
   )
   const [tasks, setTasks] = useState<TimelineTask[]>(() =>
     normalizeTasks(
-      loadFromStorage<TimelineTask[]>(TASK_STORAGE_KEY, []).filter((task) =>
-        serviceIds.includes(task.serviceId),
-      ),
+      loadFromStorage<TimelineTask[]>(TASK_STORAGE_KEY, [])
+        .filter((task) => serviceIds.includes(task.serviceId))
+        .map((task) => ({ ...task, templateSlug: task.templateSlug ?? undefined })),
     ),
   )
   const [relocationProfile, setRelocationProfileState] = useState<RelocationProfile>(() =>
@@ -203,15 +203,20 @@ export function useTimelineState(): UseTimelineStateResult {
         return []
       }
       const existing = tasks.filter((task) => task.serviceId === serviceId)
-      const existingSlugs = new Set(existing.map((task) => task.title))
+      const existingSlugs = new Set(
+        existing
+          .map((task) => task.templateSlug ?? task.title)
+          .filter((value): value is string => Boolean(value)),
+      )
       const baseSequence = existing.length
       const created: TimelineTask[] = []
       templates.forEach((template, index) => {
-        if (existingSlugs.has(template.title)) {
+        if (existingSlugs.has(template.slug) || existingSlugs.has(template.title)) {
           return
         }
         const task = instantiateTemplateTask(serviceId, template, baseSequence + index + 1)
         created.push(task)
+        existingSlugs.add(template.slug)
       })
       if (created.length) {
         const next = normalizeTasks([...tasks, ...created])

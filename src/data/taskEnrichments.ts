@@ -191,43 +191,61 @@ function actionKey(action: TaskAction) {
   }
 }
 
-export function enrichTask(task: TimelineTask): TimelineTask {
-  const applicable = ENRICHMENTS.filter((item) => matches(task, item))
-  if (!applicable.length) {
-    return task
-  }
-
-  let nextActions: TaskAction[] = task.actions ? [...task.actions] : []
-  const existingKeys = new Set(nextActions.map(actionKey))
-  for (const item of applicable) {
-    const actions = item.actions
-    if (!actions || actions.length === 0) continue
-    for (const action of actions) {
-      const key = actionKey(action)
-      if (existingKeys.has(key)) {
-        continue
-      }
-      existingKeys.add(key)
-      nextActions = [...nextActions, action]
-    }
-  }
-
-  const mergedResearchState = applicable.reduce<TimelineResearchState | undefined>((acc, item) => {
-    if (!item.researchState) return acc
-    return { ...item.researchState, ...(acc ?? {}), ...(task.researchState ?? {}) }
-  }, task.researchState)
-
-  if (nextActions === task.actions && mergedResearchState === task.researchState) {
-    return task
-  }
-
-  return {
-    ...task,
-    actions: nextActions,
-    researchState: mergedResearchState,
-  }
-}
 
 export function enrichTasks(tasks: TimelineTask[]): TimelineTask[] {
-  return tasks.map(enrichTask)
+  // Group tasks by service to track research actions per service
+  const serviceResearchCount: Partial<Record<ServiceId, number>> = {}
+
+  return tasks.map(task => {
+    const applicable = ENRICHMENTS.filter((item) => matches(task, item))
+    if (!applicable.length) {
+      return task
+    }
+
+    let nextActions: TaskAction[] = task.actions ? [...task.actions] : []
+    const existingKeys = new Set(nextActions.map(actionKey))
+
+    // Check if this service already has a research action
+    const currentServiceResearchCount = serviceResearchCount[task.serviceId] || 0
+    const hasResearchAlready = nextActions.some(action => action.type === 'research') || currentServiceResearchCount > 0
+
+    for (const item of applicable) {
+      const actions = item.actions
+      if (!actions || actions.length === 0) continue
+      for (const action of actions) {
+        const key = actionKey(action)
+        if (existingKeys.has(key)) {
+          continue
+        }
+
+        // Limit to 1 research action per service
+        if (action.type === 'research' && hasResearchAlready) {
+          continue
+        }
+
+        existingKeys.add(key)
+        nextActions = [...nextActions, action]
+
+        // Track research actions per service
+        if (action.type === 'research') {
+          serviceResearchCount[task.serviceId] = (serviceResearchCount[task.serviceId] || 0) + 1
+        }
+      }
+    }
+
+    const mergedResearchState = applicable.reduce<TimelineResearchState | undefined>((acc, item) => {
+      if (!item.researchState) return acc
+      return { ...item.researchState, ...(acc ?? {}), ...(task.researchState ?? {}) }
+    }, task.researchState)
+
+    if (nextActions === task.actions && mergedResearchState === task.researchState) {
+      return task
+    }
+
+    return {
+      ...task,
+      actions: nextActions,
+      researchState: mergedResearchState,
+    }
+  })
 }
