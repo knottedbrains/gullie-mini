@@ -1,6 +1,6 @@
 import { CheckCheck, Clock } from 'lucide-react'
 import { clsx } from 'clsx'
-import type { TaskAction, TimelineTask } from '../types/timeline'
+import type { RelocationProfile, TaskAction, TimelineTask } from '../types/timeline'
 import { ResearchActionCard } from './ResearchActionCard'
 import { BookingActionCard } from './BookingActionCard'
 import { UploadActionCard } from './UploadActionCard'
@@ -8,24 +8,30 @@ import { UploadActionCard } from './UploadActionCard'
 type ResearchAction = Extract<TaskAction, { type: 'research' }>
 type BookingAction = Extract<TaskAction, { type: 'booking' }>
 type UploadAction = Extract<TaskAction, { type: 'upload' }>
+type LinkAction = Extract<TaskAction, { type: 'link' }>
+type NoteAction = Extract<TaskAction, { type: 'note' }>
 
 interface TaskCardProps {
   task: TimelineTask
   accentColor: string
   serviceLabel: string
+  relocationProfile: RelocationProfile
   highlighted: boolean
   animationHint?: 'created' | 'updated' | 'completed' | 'touched'
   animationDelay?: number
+  onToggleStatus?: (taskId: string, nextStatus: 'pending' | 'in_progress' | 'completed') => void
 }
 
 export function TaskCard({
   task,
   accentColor,
   serviceLabel,
+  relocationProfile,
   highlighted,
   animationHint,
   animationDelay = 0,
-  }: TaskCardProps) {
+  onToggleStatus,
+}: TaskCardProps) {
   const isComplete = task.status === 'completed'
   const researchActions: ResearchAction[] = (task.actions ?? []).filter(
     (action): action is ResearchAction => action.type === 'research',
@@ -35,6 +41,12 @@ export function TaskCard({
   )
   const uploadActions: UploadAction[] = (task.actions ?? []).filter(
     (action): action is UploadAction => action.type === 'upload',
+  )
+  const linkActions: LinkAction[] = (task.actions ?? []).filter(
+    (action): action is LinkAction => action.type === 'link',
+  )
+  const noteActions: NoteAction[] = (task.actions ?? []).filter(
+    (action): action is NoteAction => action.type === 'note',
   )
 
   return (
@@ -53,12 +65,25 @@ export function TaskCard({
           <span className="h-2 w-2 rounded-full" style={{ backgroundColor: accentColor }} aria-hidden />
           {serviceLabel}
         </div>
-        <span
-          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-white shadow"
-          style={{ backgroundColor: accentColor }}
-        >
-          {task.timeframe}
-        </span>
+        <div className="flex items-center gap-3">
+          <span
+            className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-white shadow"
+            style={{ backgroundColor: accentColor }}
+          >
+            {task.timeframe}
+          </span>
+          {onToggleStatus ? (
+            <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+              <input
+                type="checkbox"
+                checked={isComplete}
+                onChange={() => onToggleStatus(task.id, isComplete ? 'pending' : 'completed')}
+                className="h-3 w-3 rounded border border-slate-400 text-sky-400 focus:ring-sky-300"
+              />
+              Done
+            </label>
+          ) : null}
+        </div>
       </div>
 
       <div>
@@ -115,6 +140,7 @@ export function TaskCard({
           ))}
         </dl>
       ) : null}
+
       {uploadActions.length ? (
         <div className="space-y-3">
           {uploadActions.map((action, index) => (
@@ -122,6 +148,7 @@ export function TaskCard({
           ))}
         </div>
       ) : null}
+
       {bookingActions.length ? (
         <div className="space-y-3">
           {bookingActions.map((action, index) => (
@@ -129,15 +156,46 @@ export function TaskCard({
           ))}
         </div>
       ) : null}
+
       {researchActions.length ? (
         <div className="space-y-3">
           {researchActions.map((action, index) => (
             <ResearchActionCard
               key={`${task.id}-research-${index}`}
               taskId={task.id}
+              task={task}
+              serviceLabel={serviceLabel}
+              relocationProfile={relocationProfile}
               action={action}
               initialState={task.researchState}
             />
+          ))}
+        </div>
+      ) : null}
+
+      {linkActions.length ? (
+        <div className="space-y-2 text-xs">
+          {linkActions.map((action, index) => (
+            <a
+              key={`${task.id}-link-${index}`}
+              href={action.url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center justify-between rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sky-200 hover:bg-sky-500/20"
+            >
+              <span className="font-semibold uppercase tracking-[0.15em]">{action.label}</span>
+              <span className="text-[11px] text-sky-200/80">Open</span>
+            </a>
+          ))}
+        </div>
+      ) : null}
+
+      {noteActions.length ? (
+        <div className="space-y-2 text-xs text-slate-300/90">
+          {noteActions.map((action, index) => (
+            <p key={`${task.id}-note-${index}`} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+              {action.text}
+            </p>
           ))}
         </div>
       ) : null}

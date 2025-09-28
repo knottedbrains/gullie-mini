@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { services } from '../data/services'
-import type { AssistantTaskHighlightDetail, ServiceDefinition, ServiceId, TimelineTask } from '../types/timeline'
+import type {
+  AssistantTaskHighlightDetail,
+  RelocationProfile,
+  ServiceDefinition,
+  ServiceId,
+  TimelineTask,
+} from '../types/timeline'
 import { TaskCard } from './TaskCard'
 
 type AnimationHint = 'created' | 'updated' | 'completed' | 'touched'
@@ -15,6 +21,8 @@ interface AnimationMap {
 interface TimelineBoardProps {
   tasks: TimelineTask[]
   highlightedTaskIds: Set<string>
+  relocationProfile: RelocationProfile
+  onToggleTaskStatus: (taskId: TimelineTask['id'], nextStatus: TimelineTask['status']) => void
 }
 
 interface ChronologicalEntry {
@@ -48,7 +56,7 @@ function compareTimeframes(a: string, b: string) {
   return a.localeCompare(b)
 }
 
-export function TimelineBoard({ tasks, highlightedTaskIds }: TimelineBoardProps) {
+export function TimelineBoard({ tasks, highlightedTaskIds, relocationProfile, onToggleTaskStatus }: TimelineBoardProps) {
   const [animationHints, setAnimationHints] = useState<AnimationMap>({})
 
   const serviceLookup = useMemo(() => {
@@ -144,9 +152,11 @@ export function TimelineBoard({ tasks, highlightedTaskIds }: TimelineBoardProps)
           task={task}
           accentColor={service.accentColor}
           serviceLabel={service.label}
+          relocationProfile={relocationProfile}
           highlighted={highlightedTaskIds.has(task.id)}
           animationHint={animationHints[task.id]?.type}
           animationDelay={index * 70}
+          onToggleStatus={onToggleTaskStatus}
         />
       ))}
     </div>

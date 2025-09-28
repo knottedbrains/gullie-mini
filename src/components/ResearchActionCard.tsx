@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Globe, Loader2, RefreshCw } from 'lucide-react'
 import clsx from 'clsx'
-import type { TaskAction, TimelineResearchState } from '../types/timeline'
+import type {
+  RelocationProfile,
+  TaskAction,
+  TimelineResearchState,
+  TimelineTask,
+} from '../types/timeline'
 
 type ResearchAction = Extract<TaskAction, { type: 'research' }>
 
 interface ResearchActionCardProps {
   taskId: string
+  task: TimelineTask
+  serviceLabel: string
+  relocationProfile: RelocationProfile
   action: ResearchAction
   initialState?: TimelineResearchState
 }
@@ -24,8 +32,55 @@ type QueryStatus = TimelineResearchState['status']
 
 const ACTIVE_STATUSES: QueryStatus[] = ['pending', 'in_progress']
 
-export function ResearchActionCard({ taskId, action, initialState }: ResearchActionCardProps) {
-  const [queryText, setQueryText] = useState(action.defaultQuery ?? '')
+function buildSuggestedQuery(
+  action: ResearchAction,
+  task: TimelineTask,
+  serviceLabel: string,
+  relocationProfile: RelocationProfile,
+) {
+  const pieces: string[] = []
+  if (action.defaultQuery?.trim()) {
+    pieces.push(action.defaultQuery.trim())
+  } else {
+    pieces.push(`${task.title} ${serviceLabel.toLowerCase()}`)
+  }
+  if (task.timeframe?.trim()) {
+    pieces.push(`timeline ${task.timeframe.trim()}`)
+  }
+  if (relocationProfile.toCity) {
+    pieces.push(`in ${relocationProfile.toCity}`)
+  }
+  if (relocationProfile.fromCity) {
+    pieces.push(`from ${relocationProfile.fromCity}`)
+  }
+  if (relocationProfile.moveDate) {
+    const formatted = new Date(relocationProfile.moveDate)
+    if (!Number.isNaN(formatted.getTime())) {
+      pieces.push(
+        `for ${formatted.toLocaleDateString(undefined, {
+          month: 'long',
+          year: 'numeric',
+        })}`,
+      )
+    }
+  }
+  return pieces.join(' ').replace(/\s+/g, ' ').trim()
+}
+
+export function ResearchActionCard({
+  taskId,
+  task,
+  serviceLabel,
+  relocationProfile,
+  action,
+  initialState,
+}: ResearchActionCardProps) {
+  const suggestedQuery = useMemo(
+    () => buildSuggestedQuery(action, task, serviceLabel, relocationProfile),
+    [action, task, serviceLabel, relocationProfile],
+  )
+  const [queryText, setQueryText] = useState(initialState?.lastQuery ?? suggestedQuery)
+  const [hasUserEdited, setHasUserEdited] = useState(Boolean(initialState?.lastQuery))
   const [status, setStatus] = useState<QueryStatus>(initialState?.status ?? 'idle')
   const [latestQueryId, setLatestQueryId] = useState<string | undefined>(initialState?.lastQueryId)
   const [results, setResults] = useState<ResearchResultItem[]>([])
@@ -38,8 +93,17 @@ export function ResearchActionCard({ taskId, action, initialState }: ResearchAct
     if (action.placeholder) {
       return action.placeholder
     }
+    if (suggestedQuery) {
+      return `Suggested: ${suggestedQuery}`
+    }
     return 'Ask a question for the web to research'
-  }, [action.placeholder])
+  }, [action.placeholder, suggestedQuery])
+
+  useEffect(() => {
+    if (!hasUserEdited) {
+      setQueryText(suggestedQuery)
+    }
+  }, [suggestedQuery, hasUserEdited])
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
@@ -59,7 +123,8 @@ export function ResearchActionCard({ taskId, action, initialState }: ResearchAct
         results: ResearchResultItem[]
       }
       if (payload.latest) {
-        setQueryText((prev) => prev || payload.latest!.query)
+        setQueryText(payload.latest!.query)
+        setHasUserEdited(true)
         setLatestQueryId(payload.latest.id)
         setStatus(payload.latest.status ?? 'complete')
       }
@@ -86,6 +151,7 @@ export function ResearchActionCard({ taskId, action, initialState }: ResearchAct
           setStatus(payload.query?.status ?? 'complete')
           if (payload.query?.query) {
             setQueryText(payload.query.query)
+            setHasUserEdited(true)
           }
           if (payload.query?.error) {
             setError(payload.query.error)
@@ -170,7 +236,10 @@ export function ResearchActionCard({ taskId, action, initialState }: ResearchAct
             type="text"
             value={queryText}
             placeholder={effectivePlaceholder}
-            onChange={(event) => setQueryText(event.target.value)}
+            onChange={(event) => {
+              setQueryText(event.target.value)
+              setHasUserEdited(true)
+            }}
             className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-400/40"
             disabled={isLoading}
           />

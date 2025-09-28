@@ -81,6 +81,7 @@ export interface UseTimelineStateResult {
   replaceTasks: (next: TimelineTask[]) => void
   buildServiceTasks: (serviceId: ServiceId) => TimelineTask[]
   setRelocationProfile: (profile: RelocationProfile) => void
+  resetAll: () => void
 }
 
 export function useTimelineState(): UseTimelineStateResult {
@@ -225,6 +226,25 @@ export function useTimelineState(): UseTimelineStateResult {
     })
   }, [])
 
+  const resetAll = useCallback(() => {
+    setSelectedServicesState([])
+    setTasks([])
+    setRelocationProfileState({})
+    dispatchTimelineUpdate([])
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent<CategoriesConfirmedDetail>('categoriesConfirmed', {
+          detail: { activeCategories: [] },
+        }),
+      )
+      window.dispatchEvent(
+        new CustomEvent<TimelineTasksUpdatedDetail>('timelineTasksUpdated', {
+          detail: { tasks: [] },
+        }),
+      )
+    }
+  }, [])
+
   return {
     tasks,
     selectedServices,
@@ -237,6 +257,7 @@ export function useTimelineState(): UseTimelineStateResult {
     replaceTasks,
     buildServiceTasks,
     setRelocationProfile,
+    resetAll,
   }
 }
 

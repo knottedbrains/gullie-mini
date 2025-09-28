@@ -1,9 +1,28 @@
 import OpenAI from 'openai'
+import dotenv from 'dotenv'
+import fs from 'fs'
+import path from 'path'
 import { appendResearchResults, updateResearchQuery, type ResearchQuery } from '../storage/researchStore'
+
+const backendEnvPath = path.resolve(__dirname, '../../.env')
+const projectRootEnvPath = path.resolve(__dirname, '../../../.env')
+
+if (fs.existsSync(projectRootEnvPath)) {
+  dotenv.config({ path: projectRootEnvPath })
+}
+if (fs.existsSync(backendEnvPath)) {
+  dotenv.config({ path: backendEnvPath })
+}
 
 const DEFAULT_MODEL = process.env.OPENAI_RESEARCH_MODEL ?? 'gpt-5'
 
-const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
+function getOpenAIClient() {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY not set. Add it to your environment variables before running web search.')
+  }
+  return new OpenAI({ apiKey })
+}
 
 interface StructuredResult {
   summary?: string
@@ -17,21 +36,23 @@ interface StructuredResult {
 }
 
 async function callOpenAIForResearch(query: ResearchQuery): Promise<StructuredResult | null> {
-  if (!openai) {
-    return null
-  }
+  const client = getOpenAIClient()
 
-  const response = await openai.responses.create({
+  const response = await client.responses.create({
     model: DEFAULT_MODEL,
     tools: [{ type: 'web_search' }],
     tool_choice: 'auto',
-    input: `Research the following relocation topic. Respond with:
-Summary: <one or two concise sentences>
+    temperature: 0.2,
+    input: `Provide a short summary and three source links for the following relocation question:
+- Question: ${query.query}
+- Format exactly:
+Summary: <one or two sentences>
 Sources:
-- Title — short takeaway (https://source-one.com)
-- Title — short takeaway (https://source-two.com)
-- Title — short takeaway (https://source-three.com)
-Ensure each URL is clickable (https). Topic: ${query.query}`,
+- <Title> — <short takeaway> (<https://...>)
+- <Title> — <short takeaway> (<https://...>)
+- <Title> — <short takeaway> (<https://...>)
+Ensure each URL is clickable (starts with https://).
+Prioritise official government, municipal, consulate, or major institutional sources; avoid community forums or unverified blogs.`,
   })
 
   let fullText = typeof response.output_text === 'string' ? response.output_text.trim() : ''
@@ -93,12 +114,19 @@ Ensure each URL is clickable (https). Topic: ${query.query}`,
       ? results
       : []
 
-  const summaryOutput = cleanedSummary || (combinedResults.length ? undefined : fullText || undefined)
+  const summaryOutput = cleanedSummary || fullText || undefined
 
   if (summaryOutput || combinedResults.length) {
     return {
       summary: summaryOutput,
       results: combinedResults,
+    }
+  }
+
+  if (fullText) {
+    return {
+      summary: fullText,
+      results: [],
     }
   }
 

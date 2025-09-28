@@ -1,6 +1,7 @@
 import express, { Request, Response } from "express"
 import cors from "cors"
 import dotenv from "dotenv"
+import path from "path"
 import {
   createResearchQuery,
   getResearchQuery,
@@ -10,7 +11,7 @@ import {
 } from './storage/researchStore'
 import { runWebResearch } from './services/webResearch'
 
-dotenv.config()
+dotenv.config({ path: path.resolve(__dirname, '../.env') })
 
 const app = express()
 app.use(cors())

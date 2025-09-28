@@ -77,7 +77,7 @@ export function FloatingAssistant({ voice }: FloatingAssistantProps) {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<AssistantUiMessageDetail>).detail
       if (!detail) return
-      setStatusEvents((prev) => [detail, ...prev].slice(0, 4))
+      setStatusEvents((prev) => [detail, ...prev].slice(0, 1))
     }
     window.addEventListener('assistantUiMessage', handler as EventListener)
     return () => window.removeEventListener('assistantUiMessage', handler as EventListener)
@@ -143,6 +143,7 @@ export function FloatingAssistant({ voice }: FloatingAssistantProps) {
   }, [liveTranscript, derivedPhase, latestStoredMessage])
 
   const isActive = voice.phase !== 'idle' && voice.phase !== 'error'
+  const latestStatus = statusEvents[0]
 
   useEffect(() => {
     if (isActive) {
@@ -232,15 +233,13 @@ export function FloatingAssistant({ voice }: FloatingAssistantProps) {
           <div className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recent updates</p>
             <ul className="space-y-2 text-sm text-slate-600">
-              {statusEvents.length === 0 ? (
-                <li className="text-slate-400">No system updates yet.</li>
+              {latestStatus ? (
+                <li key={latestStatus.timestamp} className="flex items-center gap-2 text-slate-600">
+                  <Headphones className="h-3.5 w-3.5 text-slate-400" />
+                  <span>{latestStatus.message}</span>
+                </li>
               ) : (
-                statusEvents.map((event) => (
-                  <li key={event.timestamp} className="flex items-center gap-2">
-                    <Headphones className="h-3.5 w-3.5 text-slate-400" />
-                    <span>{event.message}</span>
-                  </li>
-                ))
+                <li className="text-slate-400">No system updates yet.</li>
               )}
             </ul>
           </div>

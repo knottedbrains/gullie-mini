@@ -23,6 +23,7 @@ interface UseVoiceTimelineArgs {
   buildServiceTasks: (serviceId: ServiceId) => TimelineTask[]
   relocationProfile: RelocationProfile
   setRelocationProfile: (profile: RelocationProfile) => void
+  resetTimeline: () => void
 }
 
 export type VoiceConnectionPhase =
@@ -63,6 +64,7 @@ const instructionsDefault = [
   'Always call navigate_view("timeline") before service operations (select_services, unselect_services, record_temp_stay, suggest_temp_stays, set_task_actions). Always call navigate_view("dashboard") before task operations (list_tasks, update_tasks, edit_task, toggle_task, complete_tasks).',
   'Canonical service IDs: immigration, temp_accommodation, housing, finances, healthcare, transportation, lifestyle, education, children, pets, moving, tax, spouse_job, settling. Use these exact IDs when calling select_services/unselect_services.',
   'When the user confirms a temporary stay, call record_temp_stay({ hotel_name, confirmation_number, check_in_date?, check_out_date?, address? }) so the timeline shows the booking details. When they want options, call suggest_temp_stays({ options }) with up to three entries (name, price/night, url, notes, etc.).',
+  'If the user wants to clear everything and begin a new move, call reset_timeline().',
   'To add interactive controls (uploads, booking slots, helpful links) to any task, call set_task_actions({ task_id, actions }) with the appropriate action objects.',
   'Prefer tool calls over verbal promises and wait for each function_call_output before continuing your response. After summarizing the change, end with a short, concrete next-step question.'
 ].join(' ')
@@ -239,6 +241,7 @@ interface ToolHandlerContext {
   buildServiceTasks: (serviceId: ServiceId) => TimelineTask[]
   relocationProfileRef: MutableRefObject<RelocationProfile>
   setRelocationProfile: (profile: RelocationProfile) => void
+  resetTimeline: () => void
 }
 
 function createToolHandlers(context: ToolHandlerContext) {
@@ -252,6 +255,7 @@ function createToolHandlers(context: ToolHandlerContext) {
     buildServiceTasks,
     relocationProfileRef,
     setRelocationProfile,
+    resetTimeline,
   } = context
 
   const ensureTasksRefUpdated = (tasksRef: MutableRefObject<TimelineTask[]>, created: TimelineTask[]) => {
@@ -516,18 +520,19 @@ function createToolHandlers(context: ToolHandlerContext) {
         return { success: false, message: 'Task not found.' }
       }
       const normalized = normalizeTaskActions(Array.isArray(actions) ? actions : [])
+      const combined = normalizeTaskActions([...(existing.actions ?? []), ...normalized])
       const updated: TimelineTask = {
         ...existing,
-        actions: normalized,
+        actions: combined,
         lastUpdatedAt: new Date().toISOString(),
       }
       updateTaskRef(updated)
       upsertTask(updated)
-      if (normalized.length) {
+      if (combined.length) {
         dispatchHighlight({ ids: [task_id], action: 'updated' })
         dispatchUiMessage(`Updated actions for ${existing.title}`)
       }
-      return { success: true, actions: normalized.length }
+      return { success: true, actions: combined.length }
     },
     complete_tasks: async ({ ids = [] }: { ids?: string[] }) => {
       console.info('[voice] complete_tasks', ids)
@@ -634,6 +639,16 @@ function createToolHandlers(context: ToolHandlerContext) {
         dispatchUiMessage(`Relocation route updated: ${origin} → ${destination}`)
       }
       return { success: true, profile: next }
+    },
+    reset_timeline: async () => {
+      console.info('[voice] reset_timeline')
+      resetTimeline()
+      tasksRef.current = []
+      selectedServicesRef.current = []
+      relocationProfileRef.current = {}
+      dispatchCategories([])
+      dispatchUiMessage('Timeline cleared — ready to start fresh')
+      return { success: true }
     },
     record_temp_stay: async ({
       hotel_name,
@@ -786,7 +801,7 @@ export interface UseVoiceTimelineResult {
   isConnected: boolean
   error?: string
   messages: VoiceMessage[]
-   events: VoiceEvent[]
+  events: VoiceEvent[]
   start: () => Promise<void>
   stop: () => void
   toggleMute: () => void
@@ -803,6 +818,7 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
     buildServiceTasks,
     relocationProfile,
     setRelocationProfile,
+    resetTimeline,
   } = args
   const [phase, setPhase] = useState<VoiceConnectionPhase>('idle')
   const [isMuted, setMuted] = useState(false)
@@ -878,8 +894,9 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
         buildServiceTasks,
         relocationProfileRef,
         setRelocationProfile,
+        resetTimeline,
       }),
-    [buildServiceTasks, replaceTasks, setSelectedServices, setRelocationProfile, upsertTask, updateTaskStatus],
+    [buildServiceTasks, replaceTasks, resetTimeline, setSelectedServices, setRelocationProfile, upsertTask, updateTaskStatus],
   )
 
   const cleanUp = useCallback(() => {
@@ -1395,6 +1412,12 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
           },
           required: ['hotel_name', 'confirmation_number'],
         },
+      },
+      {
+        type: 'function',
+        name: 'reset_timeline',
+        description: 'Clear all services, tasks, and relocation details so the user can start from scratch',
+        parameters: { type: 'object', additionalProperties: false, properties: {} },
       },
       {
         type: 'function',
