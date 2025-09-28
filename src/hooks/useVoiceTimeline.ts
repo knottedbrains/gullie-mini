@@ -301,6 +301,7 @@ function createToolHandlers(context: ToolHandlerContext) {
           label,
           accept: typeof item.accept === 'string' ? item.accept : undefined,
           instructions: typeof item.instructions === 'string' ? item.instructions : undefined,
+          id: typeof item.id === 'string' ? item.id : undefined,
         })
         continue
       }
@@ -313,6 +314,7 @@ function createToolHandlers(context: ToolHandlerContext) {
           ctaLabel: typeof item.cta_label === 'string' ? item.cta_label : undefined,
           instructions: typeof item.instructions === 'string' ? item.instructions : undefined,
           calendarHint: typeof item.calendar_hint === 'string' ? item.calendar_hint : undefined,
+          id: typeof item.id === 'string' ? item.id : undefined,
         })
         continue
       }
@@ -325,13 +327,14 @@ function createToolHandlers(context: ToolHandlerContext) {
           label,
           url,
           instructions: typeof item.instructions === 'string' ? item.instructions : undefined,
+          id: typeof item.id === 'string' ? item.id : undefined,
         })
         continue
       }
       if (type === 'note') {
         const text = typeof item.text === 'string' ? item.text : undefined
         if (!text) continue
-        normalized.push({ type: 'note', text })
+        normalized.push({ type: 'note', text, id: typeof item.id === 'string' ? item.id : undefined })
         continue
       }
       if (type === 'research') {
@@ -343,10 +346,11 @@ function createToolHandlers(context: ToolHandlerContext) {
           defaultQuery: typeof item.default_query === 'string' ? item.default_query : undefined,
           placeholder: typeof item.placeholder === 'string' ? item.placeholder : undefined,
           hint: typeof item.hint === 'string' ? item.hint : undefined,
+          id: typeof item.id === 'string' ? item.id : undefined,
         })
       }
     }
-    return normalized.slice(0, 4)
+    return normalized.slice(0, 6)
   }
 
   type Handler = (payload: any) => Promise<ToolResult>

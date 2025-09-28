@@ -217,14 +217,18 @@ export function ResearchActionCard({ taskId, action, initialState }: ResearchAct
             <ul className="space-y-3">
               {results.map((item) => (
                 <li key={item.id} className="space-y-1">
-                  <a
-                    href={item.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sm font-semibold text-sky-300 hover:text-sky-200 hover:underline"
-                  >
-                    {item.title}
-                  </a>
+                  {item.url ? (
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sm font-semibold text-sky-300 hover:text-sky-200 hover:underline"
+                    >
+                      {item.title}
+                    </a>
+                  ) : (
+                    <p className="text-sm font-semibold text-slate-100">{item.title}</p>
+                  )}
                   {item.summary ? (
                     <p className="text-xs leading-5 text-slate-300/90">{item.summary}</p>
                   ) : null}

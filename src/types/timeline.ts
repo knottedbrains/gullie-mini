@@ -33,6 +33,7 @@ export type TaskAction =
       label: string
       accept?: string
       instructions?: string
+      id?: string
     }
   | {
       type: 'booking'
@@ -40,16 +41,19 @@ export type TaskAction =
       ctaLabel?: string
       instructions?: string
       calendarHint?: string
+      id?: string
     }
   | {
       type: 'link'
       label: string
       url: string
       instructions?: string
+      id?: string
     }
   | {
       type: 'note'
       text: string
+      id?: string
     }
   | {
       type: 'research'
@@ -57,6 +61,7 @@ export type TaskAction =
       defaultQuery?: string
       placeholder?: string
       hint?: string
+      id?: string
     }
 
 export interface TimelineResearchState {

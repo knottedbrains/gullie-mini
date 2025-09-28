@@ -9,6 +9,7 @@ import type {
   TimelineTasksUpdatedDetail,
   TaskStatus,
 } from '../types/timeline'
+import { enrichTasks } from '../data/taskEnrichments'
 
 const SERVICE_STORAGE_KEY = 'gullie-mini:selected-services'
 const TASK_STORAGE_KEY = 'gullie-mini:timeline-tasks'
@@ -33,6 +34,10 @@ function dedupeTasks(tasks: TimelineTask[]) {
     }
   })
   return ordered
+}
+
+function normalizeTasks(tasks: TimelineTask[]) {
+  return enrichTasks(dedupeTasks(tasks))
 }
 
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -83,7 +88,7 @@ export function useTimelineState(): UseTimelineStateResult {
     dedupeServices(loadFromStorage<ServiceId[]>(SERVICE_STORAGE_KEY, [])),
   )
   const [tasks, setTasks] = useState<TimelineTask[]>(() =>
-    dedupeTasks(
+    normalizeTasks(
       loadFromStorage<TimelineTask[]>(TASK_STORAGE_KEY, []).filter((task) =>
         serviceIds.includes(task.serviceId),
       ),
@@ -158,7 +163,7 @@ export function useTimelineState(): UseTimelineStateResult {
       const next = exists
         ? prev.map((item) => (item.id === task.id ? { ...task } : item))
         : [...prev, task]
-      const deduped = dedupeTasks(next)
+      const deduped = normalizeTasks(next)
       dispatchTimelineUpdate(deduped)
       return deduped
     })
@@ -169,14 +174,14 @@ export function useTimelineState(): UseTimelineStateResult {
       const next = prev.map((task) =>
         task.id === taskId ? { ...task, status, lastUpdatedAt: new Date().toISOString() } : task,
       )
-      const deduped = dedupeTasks(next)
+      const deduped = normalizeTasks(next)
       dispatchTimelineUpdate(deduped)
       return deduped
     })
   }, [])
 
   const replaceTasks = useCallback((next: TimelineTask[]) => {
-    const deduped = dedupeTasks(next)
+    const deduped = normalizeTasks(next)
     setTasks(deduped)
     dispatchTimelineUpdate(deduped)
   }, [])
@@ -199,11 +204,11 @@ export function useTimelineState(): UseTimelineStateResult {
         created.push(task)
       })
       if (created.length) {
-        const next = dedupeTasks([...tasks, ...created])
+        const next = normalizeTasks([...tasks, ...created])
         setTasks(next)
         dispatchTimelineUpdate(next)
       }
-      return created
+      return normalizeTasks(created)
     },
     [tasks],
   )

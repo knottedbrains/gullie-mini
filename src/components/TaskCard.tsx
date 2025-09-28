@@ -2,8 +2,12 @@ import { CheckCheck, Clock } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { TaskAction, TimelineTask } from '../types/timeline'
 import { ResearchActionCard } from './ResearchActionCard'
+import { BookingActionCard } from './BookingActionCard'
+import { UploadActionCard } from './UploadActionCard'
 
 type ResearchAction = Extract<TaskAction, { type: 'research' }>
+type BookingAction = Extract<TaskAction, { type: 'booking' }>
+type UploadAction = Extract<TaskAction, { type: 'upload' }>
 
 interface TaskCardProps {
   task: TimelineTask
@@ -21,10 +25,16 @@ export function TaskCard({
   highlighted,
   animationHint,
   animationDelay = 0,
-}: TaskCardProps) {
+  }: TaskCardProps) {
   const isComplete = task.status === 'completed'
   const researchActions: ResearchAction[] = (task.actions ?? []).filter(
     (action): action is ResearchAction => action.type === 'research',
+  )
+  const bookingActions: BookingAction[] = (task.actions ?? []).filter(
+    (action): action is BookingAction => action.type === 'booking',
+  )
+  const uploadActions: UploadAction[] = (task.actions ?? []).filter(
+    (action): action is UploadAction => action.type === 'upload',
   )
 
   return (
@@ -104,6 +114,20 @@ export function TaskCard({
             </div>
           ))}
         </dl>
+      ) : null}
+      {uploadActions.length ? (
+        <div className="space-y-3">
+          {uploadActions.map((action, index) => (
+            <UploadActionCard key={`${task.id}-upload-${index}`} taskId={task.id} action={action} />
+          ))}
+        </div>
+      ) : null}
+      {bookingActions.length ? (
+        <div className="space-y-3">
+          {bookingActions.map((action, index) => (
+            <BookingActionCard key={`${task.id}-booking-${index}`} taskId={task.id} action={action} />
+          ))}
+        </div>
       ) : null}
       {researchActions.length ? (
         <div className="space-y-3">
