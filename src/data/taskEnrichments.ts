@@ -40,6 +40,12 @@ const ENRICHMENTS: TaskEnrichment[] = [
         id: 'tour-research-tips',
       },
       {
+        type: 'research',
+        label: 'Compare viewing options',
+        defaultQuery: 'Questions to ask during {{destination_city}} virtual apartment viewings for expats {{current_year}}',
+        id: 'viewings-research-options',
+      },
+      {
         type: 'booking',
         label: 'Book tour slot',
         id: 'tour-booking-slot',
@@ -78,18 +84,6 @@ const ENRICHMENTS: TaskEnrichment[] = [
         label: 'Research neighborhood insights',
         defaultQuery: '{{destination_city}} neighborhoods with international schools, parks, and 20-minute commutes {{current_year}}',
         id: 'neighborhood-research-insights',
-      },
-    ],
-  },
-  {
-    templateSlug: 'viewings',
-    serviceId: 'housing',
-    actions: [
-      {
-        type: 'research',
-        label: 'Compare viewing options',
-        defaultQuery: 'Questions to ask during {{destination_city}} virtual apartment viewings for expats {{current_year}}',
-        id: 'viewings-research-options',
       },
     ],
   },
@@ -193,9 +187,6 @@ function actionKey(action: TaskAction) {
 
 
 export function enrichTasks(tasks: TimelineTask[]): TimelineTask[] {
-  // Group tasks by service to track research actions per service
-  const serviceResearchCount: Partial<Record<ServiceId, number>> = {}
-
   return tasks.map(task => {
     const applicable = ENRICHMENTS.filter((item) => matches(task, item))
     if (!applicable.length) {
@@ -205,30 +196,32 @@ export function enrichTasks(tasks: TimelineTask[]): TimelineTask[] {
     let nextActions: TaskAction[] = task.actions ? [...task.actions] : []
     const existingKeys = new Set(nextActions.map(actionKey))
 
-    // Check if this service already has a research action
-    const currentServiceResearchCount = serviceResearchCount[task.serviceId] || 0
-    const hasResearchAlready = nextActions.some(action => action.type === 'research') || currentServiceResearchCount > 0
+    // Check if this task already has research actions
+    const existingResearchCount = nextActions.filter(action => action.type === 'research').length
 
     for (const item of applicable) {
       const actions = item.actions
       if (!actions || actions.length === 0) continue
+
+      let taskResearchCount = existingResearchCount
+
       for (const action of actions) {
         const key = actionKey(action)
         if (existingKeys.has(key)) {
           continue
         }
 
-        // Limit to 1 research action per service
-        if (action.type === 'research' && hasResearchAlready) {
+        // Limit to 2 research actions per task (enough for viewing tasks that need both tour tips and viewing questions)
+        if (action.type === 'research' && taskResearchCount >= 2) {
           continue
         }
 
         existingKeys.add(key)
         nextActions = [...nextActions, action]
 
-        // Track research actions per service
+        // Track research actions for this task
         if (action.type === 'research') {
-          serviceResearchCount[task.serviceId] = (serviceResearchCount[task.serviceId] || 0) + 1
+          taskResearchCount++
         }
       }
     }
