@@ -75,7 +75,7 @@ export interface UseTimelineStateResult {
   visibleTasks: TimelineTask[]
   relocationProfile: RelocationProfile
   toggleService: (serviceId: ServiceId) => void
-  setSelectedServices: (next: ServiceId[]) => void
+  setSelectedServices: (next: ServiceId[], allowReduction?: boolean) => void
   upsertTask: (task: TimelineTask) => void
   updateTaskStatus: (taskId: string, status: TaskStatus) => void
   replaceTasks: (next: TimelineTask[]) => void
@@ -174,8 +174,29 @@ export function useTimelineState(): UseTimelineStateResult {
     })
   }, [])
 
-  const setSelectedServices = useCallback((next: ServiceId[]) => {
-    setSelectedServicesState(dedupeServices(next))
+  const setSelectedServices = useCallback((next: ServiceId[], allowReduction = false) => {
+    console.log('[timeline] setSelectedServices called with:', { next, allowReduction })
+    const deduped = dedupeServices(next)
+    console.log('[timeline] after deduping:', deduped)
+
+    setSelectedServicesState((prev) => {
+      // Protection: If trying to set fewer services than before, make sure it's intentional
+      if (!allowReduction && deduped.length < prev.length && prev.length > 0) {
+        console.warn('[timeline] ⚠️ POTENTIAL SERVICE LOSS DETECTED!', {
+          previous: prev,
+          attempted: deduped,
+          lost: prev.filter(id => !deduped.includes(id))
+        })
+
+        // PERMANENT FIX: Instead of replacing, merge with existing services
+        // This ensures services are NEVER lost unless explicitly removed
+        const merged = Array.from(new Set([...prev, ...deduped]))
+        console.log('[timeline] 🛡️ PROTECTED: Merging instead of replacing:', merged)
+        return merged
+      }
+
+      return deduped
+    })
   }, [])
 
   const upsertTask = useCallback((task: TimelineTask) => {
@@ -241,7 +262,14 @@ export function useTimelineState(): UseTimelineStateResult {
 
   const visibleTasks = useMemo(() => {
     const active = new Set(selectedServices)
-    return tasks.filter((task) => active.has(task.serviceId))
+    const filtered = tasks.filter((task) => active.has(task.serviceId))
+    console.log('[timeline] visibleTasks calculation:', {
+      selectedServices,
+      totalTasks: tasks.length,
+      visibleTasks: filtered.length,
+      visibleServiceIds: [...new Set(filtered.map(t => t.serviceId))]
+    })
+    return filtered
   }, [selectedServices, tasks])
 
   const setRelocationProfile = useCallback((profile: RelocationProfile) => {
@@ -252,7 +280,8 @@ export function useTimelineState(): UseTimelineStateResult {
   }, [])
 
   const resetAll = useCallback(() => {
-    setSelectedServicesState([])
+    console.log('[timeline] 🔄 LEGITIMATE RESET: Clearing all services via resetAll')
+    setSelectedServices([], true) // Use the protected function with allowReduction=true
     setTasks([])
     setRelocationProfileState({})
     dispatchTimelineUpdate([])
@@ -268,7 +297,7 @@ export function useTimelineState(): UseTimelineStateResult {
         }),
       )
     }
-  }, [])
+  }, [setSelectedServices])
 
   return {
     tasks,
