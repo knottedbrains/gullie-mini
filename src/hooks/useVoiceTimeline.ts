@@ -455,21 +455,12 @@ function createToolHandlers(context: ToolHandlerContext) {
       .filter((value): value is string[] | string => value !== undefined)
       .flatMap((value) => (Array.isArray(value) ? value : [value]))
     const inputs = collected.length ? collected : []
-    console.info('[voice] select_services - BEFORE:', {
-      inputs,
-      currentServices: selectedServicesRef.current.slice(),
-      requestedServices: inputs
-    })
     const resolved = resolveServiceIds(inputs)
     if (!resolved.length) {
       return { success: false, message: 'No matching services found.' }
     }
     const merged = Array.from(new Set([...selectedServicesRef.current, ...resolved]))
-    console.info('[voice] select_services - AFTER:', {
-      resolved,
-      previousServices: selectedServicesRef.current.slice(),
-      mergedServices: merged.slice()
-    })
+    console.log('[voice] handleSelectServices:', { previous: selectedServicesRef.current, resolved, merged })
     selectedServicesRef.current = merged
     setSelectedServices(merged)
     if (merged.length) {
@@ -517,10 +508,6 @@ function createToolHandlers(context: ToolHandlerContext) {
       .filter((value): value is string[] | string => value !== undefined)
       .flatMap((value) => (Array.isArray(value) ? value : [value]))
     const inputs = collected.length ? collected : []
-    console.info('[voice] unselect_services - CALLED:', {
-      inputs,
-      currentServices: selectedServicesRef.current.slice()
-    })
     const resolved = resolveServiceIds(inputs)
     if (!resolved.length) {
       return { success: false, message: 'No matching services to unselect.' }

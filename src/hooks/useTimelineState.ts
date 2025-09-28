@@ -122,14 +122,25 @@ export function useTimelineState(): UseTimelineStateResult {
           serviceIds.includes(id),
         )
 
+        console.log('[timeline] categoriesConfirmed:', { prev, incoming, activeCategories: detail.activeCategories })
+
         if (!incoming.length) {
           return prev
         }
 
         const merged = Array.from(new Set([...prev, ...incoming]))
-        if (merged.length === prev.length && merged.every((id, index) => id === prev[index])) {
-          return prev
+        console.log('[timeline] merged services:', merged)
+
+        if (merged.length === prev.length) {
+          // Check if all services in merged are already in prev (regardless of order)
+          const prevSet = new Set(prev)
+          const hasNewServices = merged.some(id => !prevSet.has(id))
+          if (!hasNewServices) {
+            console.log('[timeline] no new services, keeping prev')
+            return prev
+          }
         }
+        console.log('[timeline] updating to merged services')
         return merged
       })
     }
