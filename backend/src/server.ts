@@ -77,7 +77,7 @@ app.get('/api/research/task/:taskId', async (req: Request, res: Response) => {
     res.json({ taskId, latest, results, history })
   } catch (error) {
     console.error('Failed to load task research', error)
-    res.status(500).json({ error: 'Failed to load research for task' })
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to load research for task' })
   }
 })
 
@@ -95,7 +95,7 @@ app.get('/api/research/query/:queryId', async (req: Request, res: Response) => {
     res.json({ query: queryRecord, results })
   } catch (error) {
     console.error('Failed to load research query', error)
-    res.status(500).json({ error: 'Failed to load research query' })
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to load research query' })
   }
 })
 
@@ -128,10 +128,11 @@ app.post('/api/housing/search', async (req: Request, res: Response) => {
 
     res.json(result)
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Housing search service is temporarily unavailable'
     console.error('[housing] API error:', error)
     res.status(500).json({
       top_picks: [],
-      error: 'Housing search service is temporarily unavailable'
+      error: message
     })
   }
 })

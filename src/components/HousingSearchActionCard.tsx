@@ -61,7 +61,8 @@ export function HousingSearchActionCard({ action }: HousingSearchActionCardProps
       })
 
       if (!response.ok) {
-        throw new Error(`Search failed: ${response.status}`)
+        const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+        throw new Error(errorPayload?.error ?? `Search failed: ${response.status}`)
       }
 
       const data: HousingSearchResult = await response.json()

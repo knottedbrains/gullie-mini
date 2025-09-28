@@ -76,6 +76,7 @@ export interface UseTimelineStateResult {
   relocationProfile: RelocationProfile
   toggleService: (serviceId: ServiceId) => void
   setSelectedServices: (next: ServiceId[], allowReduction?: boolean) => void
+  forceAddService: (serviceId: ServiceId) => void // Manual testing function
   upsertTask: (task: TimelineTask) => void
   updateTaskStatus: (taskId: string, status: TaskStatus) => void
   replaceTasks: (next: TimelineTask[]) => void
@@ -85,9 +86,11 @@ export interface UseTimelineStateResult {
 }
 
 export function useTimelineState(): UseTimelineStateResult {
-  const [selectedServices, setSelectedServicesState] = useState<ServiceId[]>(() =>
-    dedupeServices(loadFromStorage<ServiceId[]>(SERVICE_STORAGE_KEY, [])),
-  )
+  const [selectedServices, setSelectedServicesState] = useState<ServiceId[]>(() => {
+    const loaded = dedupeServices(loadFromStorage<ServiceId[]>(SERVICE_STORAGE_KEY, []))
+    console.log('[timeline] INITIALIZING selectedServices from storage:', loaded)
+    return loaded
+  })
   const [tasks, setTasks] = useState<TimelineTask[]>(() =>
     normalizeTasks(
       loadFromStorage<TimelineTask[]>(TASK_STORAGE_KEY, [])
@@ -100,6 +103,18 @@ export function useTimelineState(): UseTimelineStateResult {
   )
 
   useEffect(() => {
+    console.log('[timeline] PERSISTING selectedServices to storage:', selectedServices)
+
+    // Additional protection: Check what's currently in storage
+    const currentInStorage = loadFromStorage<ServiceId[]>(SERVICE_STORAGE_KEY, [])
+    console.log('[timeline] Current storage before persist:', currentInStorage)
+
+    // Only persist if we're not losing services unintentionally
+    if (selectedServices.length === 0 && currentInStorage.length > 0) {
+      console.error('[timeline] 🚨 BLOCKING STORAGE CLEAR - would lose services:', currentInStorage)
+      return // Don't persist empty array if storage has services
+    }
+
     persistToStorage(SERVICE_STORAGE_KEY, selectedServices)
   }, [selectedServices])
 
