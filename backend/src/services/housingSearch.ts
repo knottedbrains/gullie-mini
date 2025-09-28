@@ -179,10 +179,25 @@ export async function searchHousingListings(params: HousingSearchParams): Promis
 
     console.log(`[housing] Found ${items.length} raw listings, processing...`)
 
+    // Debug: log the first few items to see the actual structure
+    console.log('[housing] Sample raw data structure:', JSON.stringify(items.slice(0, 2), null, 2))
+
     // Process and score listings
     const processedListings: Array<HousingListing & { score: number }> = items
       .filter((item: any) => item && item.address && item.price)
       .map((item: any) => {
+        // Debug URL fields
+        const urlFields = {
+          url: item.url,
+          link: item.link,
+          href: item.href,
+          zillowUrl: item.zillowUrl,
+          listing_url: item.listing_url,
+          propertyUrl: item.propertyUrl,
+          detailUrl: item.detailUrl,
+        }
+        console.log('[housing] URL fields for listing:', urlFields)
+
         const listing: HousingListing & { score: number } = {
           price: formatPrice(item.price),
           address: item.address || 'Address not available',
@@ -190,7 +205,7 @@ export async function searchHousingListings(params: HousingSearchParams): Promis
           num_bathrooms: parseFloat(item.bathrooms?.toString() || '0'),
           description: item.description || 'Description not available',
           image_url: extractImageUrl(item.images || []),
-          zillow_url: item.url || item.link || '',
+          zillow_url: item.url || item.link || item.href || item.zillowUrl || item.listing_url || item.propertyUrl || item.detailUrl || '',
           score: scoreProperty(item, params),
         }
         return listing
