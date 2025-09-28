@@ -62,7 +62,7 @@ const instructionsDefault = [
   'At session start call get_relocation, greet with "Hi, I see that you have a move started from {from_city} to {to_city}." If a city is missing say "your current move" instead. Then call list_selected_services and list_tasks(status="in_progress", limit=5) so you can proactively ask for updates.',
   'Guide the user through immigration/visa, housing (short-term and long-term), moving/shipping, finance, healthcare, transportation, education/children, pets, lifestyle, tax, spouse job, and settling. Ask one clear question at a time and keep nudging forward if the user is quiet.',
   'Always call navigate_view("timeline") before service operations (select_services, unselect_services, record_temp_stay, suggest_temp_stays, set_task_actions). Always call navigate_view("dashboard") before task operations (list_tasks, update_tasks, edit_task, toggle_task, complete_tasks).',
-  'IMPORTANT: The select_services function ADDS services to the existing list - it does NOT replace them. When a user mentions new topics like "housing" or "visa", call select_services to ADD those services while keeping previously selected services active. NEVER call unselect_services or reset_timeline unless explicitly asked.',
+  'CRITICAL: Services on the timeline are PERMANENT once added. The select_services function ONLY ADDS services to the existing list and NEVER removes or replaces existing services. When a user asks for help with "housing", "visa", "moving", etc., call select_services to ADD those services. The timeline should accumulate all services - never replace them. NEVER call unselect_services or reset_timeline unless the user explicitly says "remove" or "clear" or "start over".',
   'Canonical service IDs: immigration, temp_accommodation, housing, finances, healthcare, transportation, lifestyle, education, children, pets, moving, tax, spouse_job, settling. Use these exact IDs when calling select_services/unselect_services.',
   'When the user confirms a temporary stay, call record_temp_stay({ hotel_name, confirmation_number, check_in_date?, check_out_date?, address? }) so the timeline shows the booking details. When they want options, call suggest_temp_stays({ options }) with up to three entries (name, price/night, url, notes, etc.).',
   'If the user wants to clear everything and begin a new move, call reset_timeline().',
@@ -533,9 +533,19 @@ function createToolHandlers(context: ToolHandlerContext) {
       const services = selectedServicesRef.current
       return { services }
     },
-    select_services: handleSelectServices,
+    select_services: async (args: any) => {
+      console.log('[voice] select_services called with:', args)
+      const result = await handleSelectServices(args)
+      console.log('[voice] select_services result:', result)
+      return result
+    },
     add_service_tasks: handleAddServiceTasks,
-    unselect_services: handleUnselectServices,
+    unselect_services: async (args: any) => {
+      console.warn('[voice] ⚠️ unselect_services called! This should rarely happen:', args)
+      const result = await handleUnselectServices(args)
+      console.warn('[voice] unselect_services result:', result)
+      return result
+    },
     open_housing_search: async ({ prompt }: { prompt?: string }) => {
       console.info('[voice] open_housing_search', prompt)
       dispatchUiMessage('Opening housing search results')
@@ -746,14 +756,15 @@ function createToolHandlers(context: ToolHandlerContext) {
       return { success: true, profile: next }
     },
     reset_timeline: async ({ confirm }: { confirm?: string }) => {
-      console.info('[voice] reset_timeline - CALLED! Confirmation:', confirm)
+      console.warn('[voice] ⚠️ ⚠️ ⚠️ RESET_TIMELINE CALLED! This should be rare:', { confirm })
       if (confirm !== 'yes_clear_everything') {
+        console.warn('[voice] reset_timeline cancelled - no confirmation')
         return {
           success: false,
           message: 'Reset cancelled. To confirm, use confirm: "yes_clear_everything"'
         }
       }
-      console.info('[voice] reset_timeline - CONFIRMED! Clearing all services!')
+      console.error('[voice] 🚨 RESET_TIMELINE CONFIRMED! CLEARING ALL SERVICES!')
       resetTimeline()
       tasksRef.current = []
       selectedServicesRef.current = []
