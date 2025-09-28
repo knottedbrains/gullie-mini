@@ -2,7 +2,68 @@ import { useEffect, useMemo, useState } from 'react'
 import { Headphones, Mic, MicOff, Pause, Play, Waves } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { AssistantUiMessageDetail } from '../types/timeline'
-import type { UseVoiceTimelineResult } from '../hooks/useVoiceTimeline'
+import type { UseVoiceTimelineResult, VoiceConnectionPhase, VoiceEvent } from '../hooks/useVoiceTimeline'
+
+type DerivedPhase = VoiceConnectionPhase | 'assistant_speaking'
+type ConversationEntry = { id: string; role: string; content: string; live?: boolean }
+
+function derivePhaseAndTranscript(events: VoiceEvent[]): { phase: DerivedPhase; transcript: string } {
+  if (!events.length) {
+    return { phase: 'idle', transcript: '' }
+  }
+  const reversed = [...events].reverse()
+  const findText = (types: string[]) => {
+    const match = reversed.find((event) => types.includes((event.payload?.type as string) ?? ''))
+    if (!match) return ''
+    const payload = match.payload
+    return (
+      (payload?.text as string | undefined) ??
+      (payload?.transcript as string | undefined) ??
+      (payload?.delta as string | undefined) ??
+      ''
+    )
+  }
+
+  let transcript =
+    findText(['response.audio_transcript.done']) ||
+    findText(['response.output_text.done']) ||
+    findText(['response.audio_transcript.delta']) ||
+    ''
+
+  let phase: DerivedPhase = 'idle'
+  for (const event of reversed) {
+    const type = (event.payload?.type as string) ?? ''
+    if (
+      type === 'response.function_call' ||
+      type === 'response.tool_call' ||
+      type === 'response.function_call_arguments.delta' ||
+      type === 'response.function_call_arguments.done' ||
+      type === 'response.tool_call_arguments.delta' ||
+      type === 'response.tool_call_arguments.done'
+    ) {
+      phase = 'function'
+      break
+    }
+    if (type === 'response.output_audio_buffer.started') {
+      phase = 'assistant_speaking'
+      break
+    }
+    if (type === 'response.created') {
+      phase = 'thinking'
+      break
+    }
+    if (
+      type === 'response.input_audio_transcription.delta' ||
+      type === 'response.input_text.delta' ||
+      type === 'input_audio_buffer.speech_started'
+    ) {
+      phase = 'listening'
+      break
+    }
+  }
+
+  return { phase, transcript: transcript.trim() }
+}
 
 interface FloatingAssistantProps {
   voice: UseVoiceTimelineResult
@@ -22,7 +83,15 @@ export function FloatingAssistant({ voice }: FloatingAssistantProps) {
     return () => window.removeEventListener('assistantUiMessage', handler as EventListener)
   }, [])
 
+  const { phase: derivedPhase, transcript: liveTranscript } = useMemo(
+    () => derivePhaseAndTranscript(voice.events),
+    [voice.events],
+  )
+
   const phaseLabel = useMemo(() => {
+    if (derivedPhase === 'assistant_speaking') {
+      return 'Speaking'
+    }
     switch (voice.phase) {
       case 'idle':
         return 'Idle'
@@ -39,18 +108,39 @@ export function FloatingAssistant({ voice }: FloatingAssistantProps) {
       default:
         return 'Idle'
     }
-  }, [voice.phase])
+  }, [voice.phase, derivedPhase])
 
-  const transcriptItems = useMemo(() => {
-    const limit = 6
-    const total = voice.messages.length
-    const start = total > limit ? total - limit : 0
-    return voice.messages.slice(start).map((message) => ({
-      id: message.id,
-      role: message.role === 'assistant' ? 'Assistant' : 'You',
-      content: message.content.trim(),
-    }))
+  const latestStoredMessage = useMemo<ConversationEntry | null>(() => {
+    if (!voice.messages.length) {
+      return null
+    }
+    const last = voice.messages[voice.messages.length - 1]
+    const content = last.content.trim()
+    if (!content) {
+      return null
+    }
+    return {
+      id: last.id,
+      role: last.role === 'assistant' ? 'Assistant' : 'You',
+      content,
+    }
   }, [voice.messages])
+
+  const latestConversationItem = useMemo<ConversationEntry | null>(() => {
+    const trimmed = liveTranscript.trim()
+    if (trimmed) {
+      if (latestStoredMessage && latestStoredMessage.content === trimmed) {
+        return latestStoredMessage
+      }
+      return {
+        id: 'live-transcript',
+        role: derivedPhase === 'assistant_speaking' ? 'Assistant (live)' : 'Assistant',
+        content: trimmed,
+        live: true,
+      }
+    }
+    return latestStoredMessage
+  }, [liveTranscript, derivedPhase, latestStoredMessage])
 
   const isActive = voice.phase !== 'idle' && voice.phase !== 'error'
 
@@ -158,17 +248,23 @@ export function FloatingAssistant({ voice }: FloatingAssistantProps) {
           <div className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Conversation</p>
             <ul className="space-y-2 text-sm text-slate-600">
-              {transcriptItems.length === 0 ? (
-                <li className="text-slate-400">Say hello to start the transcript.</li>
+              {latestConversationItem ? (
+                <li
+                  key={latestConversationItem.id}
+                  className={clsx(
+                    'rounded-2xl px-3 py-2',
+                    latestConversationItem.live
+                      ? 'border border-sky-200 bg-sky-50'
+                      : 'bg-slate-100',
+                  )}
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    {latestConversationItem.role}
+                  </p>
+                  <p className="mt-1 whitespace-pre-line text-slate-700">{latestConversationItem.content}</p>
+                </li>
               ) : (
-                transcriptItems.map((item) => (
-                  <li key={item.id} className="rounded-2xl bg-slate-100 px-3 py-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                      {item.role}
-                    </p>
-                    <p className="mt-1 whitespace-pre-line text-slate-700">{item.content}</p>
-                  </li>
-                ))
+                <li className="text-slate-400">Say hello to start the transcript.</li>
               )}
             </ul>
           </div>

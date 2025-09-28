@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { services } from '../data/services'
-import type { AssistantTaskHighlightDetail, ServiceId, TimelineTask } from '../types/timeline'
+import type { AssistantTaskHighlightDetail, ServiceDefinition, ServiceId, TimelineTask } from '../types/timeline'
 import { TaskCard } from './TaskCard'
 
 type AnimationHint = 'created' | 'updated' | 'completed' | 'touched'
@@ -14,28 +14,78 @@ interface AnimationMap {
 
 interface TimelineBoardProps {
   tasks: TimelineTask[]
-  selectedServices: ServiceId[]
   highlightedTaskIds: Set<string>
 }
 
-export function TimelineBoard({ tasks, selectedServices, highlightedTaskIds }: TimelineBoardProps) {
+interface ChronologicalEntry {
+  task: TimelineTask
+  service: ServiceDefinition
+  index: number
+}
+
+function parseNumericPortion(value: string) {
+  const match = value.match(/\d+/)
+  return match ? parseInt(match[0], 10) : 0
+}
+
+function getTimeframeRank(timeframe: string) {
+  const normalized = timeframe.trim().toLowerCase()
+  if (normalized === 'kickoff') return 0
+  if (normalized.startsWith('day')) return 100 + parseNumericPortion(normalized)
+  if (normalized.startsWith('week')) return 200 + parseNumericPortion(normalized)
+  if (normalized === 'arrival') return 300
+  if (normalized === 'transit') return 350
+  if (normalized === 'landing') return 400
+  if (normalized === 'decision') return 500
+  return 600
+}
+
+function compareTimeframes(a: string, b: string) {
+  const diff = getTimeframeRank(a) - getTimeframeRank(b)
+  if (diff !== 0) {
+    return diff
+  }
+  return a.localeCompare(b)
+}
+
+export function TimelineBoard({ tasks, highlightedTaskIds }: TimelineBoardProps) {
   const [animationHints, setAnimationHints] = useState<AnimationMap>({})
 
-  const tasksByService = useMemo(() => {
-    const grouped = new Map<ServiceId, TimelineTask[]>()
-    for (const task of tasks) {
-      if (!grouped.has(task.serviceId)) {
-        grouped.set(task.serviceId, [])
+  const serviceLookup = useMemo(() => {
+    const map = new Map<ServiceId, ServiceDefinition>()
+    services.forEach((service) => {
+      map.set(service.id, service)
+    })
+    return map
+  }, [])
+
+  const chronologicalTasks = useMemo(() => {
+    const mapped: ChronologicalEntry[] = tasks
+      .map((task, index) => {
+        const service = serviceLookup.get(task.serviceId)
+        if (!service) {
+          return null
+        }
+        return { task, service, index }
+      })
+      .filter((entry): entry is ChronologicalEntry => entry !== null)
+
+    mapped.sort((a, b) => {
+      const timeframeDiff = compareTimeframes(a.task.timeframe, b.task.timeframe)
+      if (timeframeDiff !== 0) {
+        return timeframeDiff
       }
-      grouped.get(task.serviceId)?.push(task)
-    }
+      if (a.task.sequence !== b.task.sequence) {
+        return a.task.sequence - b.task.sequence
+      }
+      if (a.service.label !== b.service.label) {
+        return a.service.label.localeCompare(b.service.label)
+      }
+      return a.index - b.index
+    })
 
-    for (const list of grouped.values()) {
-      list.sort((a, b) => a.sequence - b.sequence)
-    }
-
-    return grouped
-  }, [tasks])
+    return mapped
+  }, [tasks, serviceLookup])
 
   useEffect(() => {
     const handleHighlight = (event: Event) => {
@@ -78,84 +128,27 @@ export function TimelineBoard({ tasks, selectedServices, highlightedTaskIds }: T
     return () => window.clearInterval(interval)
   }, [])
 
-  const activeServices = selectedServices
-    .map((id) => services.find((service) => service.id === id))
-    .filter((service): service is (typeof services)[number] => Boolean(service))
-
-  if (!activeServices.length) {
+  if (!chronologicalTasks.length) {
     return (
-      <section className="rounded-3xl border border-dashed border-slate-200 bg-white/60 p-6 text-center text-slate-500 shadow-sm">
-        No active services yet. Ask the assistant about immigration, housing, or shipping to kick things off.
-      </section>
+      <p className="text-sm text-slate-400">
+        No timeline cards yet. Ask the voice assistant to add tasks to your relocation plan.
+      </p>
     )
   }
 
   return (
-    <div className="relative pl-6">
-      <span className="pointer-events-none absolute left-[24px] top-0 bottom-0 w-[2px] bg-white/25" />
-      <div className="space-y-12">
-        {activeServices.map((service, serviceIndex) => {
-          const serviceTasks = tasksByService.get(service.id) ?? []
-          const isFirst = serviceIndex === 0
-          const isLast = serviceIndex === activeServices.length - 1
-
-          return (
-            <section key={service.id} className="grid grid-cols-[48px,1fr] items-start gap-6">
-              <div className="relative min-h-[16px] pt-2">
-                {!isFirst && (
-                  <span className="pointer-events-none absolute left-1/2 top-0 bottom-1/2 w-[2px] -translate-x-1/2 bg-white/80" />
-                )}
-                {!isLast && (
-                  <span className="pointer-events-none absolute left-1/2 top-1/2 bottom-0 w-[2px] -translate-x-1/2 bg-white/80" />
-                )}
-                <span
-                  className="pointer-events-none absolute left-1/2 top-2 z-10 h-4 w-4 -translate-x-1/2 rounded-full border-2 border-white shadow"
-                  style={{ backgroundColor: service.accentColor }}
-                />
-              </div>
-
-            <div className="rounded-3xl border border-slate-200 bg-white/85 p-6 shadow-sm backdrop-blur">
-              <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="flex items-start gap-3">
-                  <div
-                    className="flex h-12 w-12 items-center justify-center rounded-2xl text-white"
-                    style={{ backgroundImage: `linear-gradient(135deg, ${service.accentColor}, #1e293b)` }}
-                  >
-                    <service.icon className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-semibold text-slate-900">{service.label}</h2>
-                    <p className="text-sm text-slate-500">{service.description}</p>
-                  </div>
-                </div>
-                <span className="inline-flex items-center gap-1 self-start rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                  {serviceTasks.length} task{serviceTasks.length === 1 ? '' : 's'}
-                </span>
-              </header>
-
-              <div className="mt-6 space-y-4">
-                {serviceTasks.length === 0 ? (
-                  <p className="text-sm text-slate-500">
-                    No tasks yet. Ask the voice assistant for next steps around this service.
-                  </p>
-                ) : (
-                  serviceTasks.map((task, index) => (
-                    <TaskCard
-                      key={task.id}
-                      task={task}
-                      accentColor={service.accentColor}
-                      highlighted={highlightedTaskIds.has(task.id)}
-                      animationHint={animationHints[task.id]?.type}
-                      animationDelay={(serviceIndex * 4 + index) * 70}
-                    />
-                  ))
-                )}
-              </div>
-              </div>
-            </section>
-          )
-        })}
-      </div>
+    <div className="flex flex-col gap-3">
+      {chronologicalTasks.map(({ task, service }, index) => (
+        <TaskCard
+          key={task.id}
+          task={task}
+          accentColor={service.accentColor}
+          serviceLabel={service.label}
+          highlighted={highlightedTaskIds.has(task.id)}
+          animationHint={animationHints[task.id]?.type}
+          animationDelay={index * 70}
+        />
+      ))}
     </div>
   )
 }

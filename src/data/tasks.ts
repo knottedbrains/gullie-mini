@@ -9,6 +9,14 @@ export const initialTasks: TimelineTask[] = [
     timeframe: 'Day 3',
     status: 'pending',
     sequence: 1,
+    actions: [
+      {
+        type: 'research',
+        label: 'Research destination rental insights',
+        defaultQuery: 'Current rental market insights for family-friendly neighborhoods in Berlin',
+        hint: 'Pull recent articles or listings to compare pricing with the assigned budget.',
+      },
+    ],
   },
   {
     id: 'task-housing-tour',
@@ -18,6 +26,13 @@ export const initialTasks: TimelineTask[] = [
     timeframe: 'Day 5',
     status: 'pending',
     sequence: 2,
+    actions: [
+      {
+        type: 'research',
+        label: 'Find recent tour reviews',
+        defaultQuery: 'Best virtual apartment tour tools for Berlin relocation 2025',
+      },
+    ],
   },
   {
     id: 'task-immigration-packet',
@@ -27,6 +42,13 @@ export const initialTasks: TimelineTask[] = [
     timeframe: 'Week 1',
     status: 'in_progress',
     sequence: 1,
+    actions: [
+      {
+        type: 'research',
+        label: 'Check latest visa document guidance',
+        defaultQuery: 'Latest Germany work visa documentation requirements for US citizens 2025',
+      },
+    ],
   },
   {
     id: 'task-immigration-appointment',

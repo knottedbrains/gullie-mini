@@ -466,5 +466,6 @@ export function instantiateTemplateTask(
     lastUpdatedAt: new Date().toISOString(),
     templateSlug: template.slug,
     extraInfo: [],
+    actions: [],
   }
 }

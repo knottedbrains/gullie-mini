@@ -127,25 +127,18 @@ function App() {
 
         <section className="space-y-6">
           <RelocationSummaryCard profile={relocationProfile} activeServices={activeServiceLabels} />
-          {showTimeline ? (
-            <TimelineBoard
-              tasks={visibleTasks}
-              selectedServices={selectedServices}
-              highlightedTaskIds={highlightedTaskIds}
-            />
-          ) : (
-            <div className="rounded-4xl border border-dashed border-white/10 bg-white/5 px-10 py-16 text-center text-slate-200 shadow-inner shadow-black/20 backdrop-blur">
-              <div className="mx-auto max-w-2xl space-y-6">
-                <h2 className="text-2xl font-semibold text-white">Ready when you are</h2>
-                <p className="text-base text-slate-300/90">
-                  Tell Gullie what you are working on — immigration, housing, schools, or shipping. The assistant will select the right services, generate the next steps, and check things off as you confirm progress.
-                </p>
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-400/80">
-                  Tap “Speak to the voice assistant” to begin
-                </p>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <p className="text-xs uppercase tracking-[0.3em] text-slate-300/60">Timeline</p>
+            {showTimeline ? (
+              <div className="mt-4">
+                <TimelineBoard tasks={visibleTasks} highlightedTaskIds={highlightedTaskIds} />
               </div>
-            </div>
-          )}
+            ) : (
+              <p className="mt-3 text-sm text-slate-400">
+                Ask the voice assistant about immigration, housing, shipping, or other relocation topics to activate your cards.
+              </p>
+            )}
+          </div>
         </section>
       </main>
       <FloatingAssistant voice={voice} />

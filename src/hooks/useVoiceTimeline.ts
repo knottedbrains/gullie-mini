@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
+import { getVoiceSystemPrompt } from '@/services/settings'
 import { services } from '../data/services'
 import type {
   AssistantTaskHighlightDetail,
@@ -9,6 +10,7 @@ import type {
   ServiceId,
   TaskStatus,
   TimelineTask,
+  TaskAction,
 } from '../types/timeline'
 
 interface UseVoiceTimelineArgs {
@@ -38,6 +40,12 @@ export interface VoiceMessage {
   timestamp: number
 }
 
+export interface VoiceEvent {
+  id: string
+  timestamp: number
+  payload: Record<string, unknown>
+}
+
 interface PendingFunctionCall {
   name: string
   args: string
@@ -48,21 +56,16 @@ type ToolResult = Record<string, unknown> | string | number | boolean | null
 const STUN_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }]
 const MODEL = 'gpt-4o-realtime-preview-2024-12-17'
 
-const SESSION_INSTRUCTIONS = `You are Gullie, a relocation voice specialist guiding a user who is moving from one city to another.
-- Be concise, friendly, and speak in English.
-- Always greet with: "Hi, I see that you have a move started from {from_city} to {to_city}." Do not ask them to confirm the cities unless you are missing that information.
-- Begin every session by calling get_relocation() and list_selected_services().
-- Check recent progress by calling list_tasks with status="in_progress" and limit=5, then ask for updates.
-- Ask one discovery question at a time about immigration, housing, shipping, finance, education, pets, and lifestyle.
-- Whenever the user shares their origin or destination cities (or confirms their route), call set_relocation_profile({ from_city, to_city, move_date? }) so the UI updates immediately.
-- The UI is a single timeline view. Do not call navigate_view unless absolutely necessary.
-- When a user hints at a need, immediately call select_service (or select_services) with the canonical service IDs, then call add_service_tasks so the cards appear without delay.
-- When the user confirms a temporary accommodation booking, call record_temp_stay({ hotel_name, confirmation_number, check_in_date, check_out_date, address? }).
-- When the user wants to review hotel options, call suggest_temp_stays({ options: [...] }) with up to three tailored choices (each containing name, nightly_rate/price, url, and notes).
-- When tasks are reported complete, call update_tasks or complete_tasks and provide a brief summary.
-- End each spoken response with a short next-step question.
-- Remember what the user said earlier in the conversation and reference it naturally.
-- Keep the conversation one prompt at a time; do not queue multiple questions.`
+const instructionsDefault = [
+  'You are the Gullie voice assistant. Keep responses concise and friendly. Always respond in English unless the user explicitly switches languages.',
+  'At session start call get_relocation, greet with “Hi, I see that you have a move started from {from_city} to {to_city}.” If a city is missing say “your current move” instead. Then call list_selected_services and list_tasks(status="in_progress", limit=5) so you can proactively ask for updates.',
+  'Guide the user through immigration/visa, housing (short-term and long-term), moving/shipping, finance, healthcare, transportation, education/children, pets, lifestyle, tax, spouse job, and settling. Ask one clear question at a time and keep nudging forward if the user is quiet.',
+  'Always call navigate_view("timeline") before service operations (select_services, unselect_services, record_temp_stay, suggest_temp_stays, set_task_actions). Always call navigate_view("dashboard") before task operations (list_tasks, update_tasks, edit_task, toggle_task, complete_tasks).',
+  'Canonical service IDs: immigration, temp_accommodation, housing, finances, healthcare, transportation, lifestyle, education, children, pets, moving, tax, spouse_job, settling. Use these exact IDs when calling select_services/unselect_services.',
+  'When the user confirms a temporary stay, call record_temp_stay({ hotel_name, confirmation_number, check_in_date?, check_out_date?, address? }) so the timeline shows the booking details. When they want options, call suggest_temp_stays({ options }) with up to three entries (name, price/night, url, notes, etc.).',
+  'To add interactive controls (uploads, booking slots, helpful links) to any task, call set_task_actions({ task_id, actions }) with the appropriate action objects.',
+  'Prefer tool calls over verbal promises and wait for each function_call_output before continuing your response. After summarizing the change, end with a short, concrete next-step question.'
+].join(' ')
 
 function dispatchUiMessage(message: string) {
   if (typeof window === 'undefined') return
@@ -138,6 +141,8 @@ const SERVICE_SYNONYMS: Record<string, ServiceId> = {
   'temporary accommodation': 'temp_accommodation',
   'short term accommodation': 'temp_accommodation',
   'short-term accommodation': 'temp_accommodation',
+  tempacc: 'temp_accommodation',
+  'temp acc': 'temp_accommodation',
   moving: 'moving',
   'move logistics': 'moving',
   movers: 'moving',
@@ -197,6 +202,8 @@ const SERVICE_SYNONYMS: Record<string, ServiceId> = {
   'tax advisor': 'tax',
   spouse: 'spouse_job',
   'spouse job': 'spouse_job',
+  'spouse-job': 'spouse_job',
+  spousejob: 'spouse_job',
   'partner job': 'spouse_job',
   'career coaching': 'spouse_job',
   settling: 'settling',
@@ -277,6 +284,69 @@ function createToolHandlers(context: ToolHandlerContext) {
     const parsed = new Date(value)
     if (Number.isNaN(parsed.getTime())) return value
     return parsed.toLocaleDateString()
+  }
+
+  const normalizeTaskActions = (payload: unknown): TaskAction[] => {
+    if (!Array.isArray(payload)) return []
+    const normalized: TaskAction[] = []
+    for (const raw of payload) {
+      if (!raw || typeof raw !== 'object') continue
+      const item = raw as Record<string, unknown>
+      const type = typeof item.type === 'string' ? item.type.toLowerCase() : ''
+      if (type === 'upload') {
+        const label = typeof item.label === 'string' ? item.label : undefined
+        if (!label) continue
+        normalized.push({
+          type: 'upload',
+          label,
+          accept: typeof item.accept === 'string' ? item.accept : undefined,
+          instructions: typeof item.instructions === 'string' ? item.instructions : undefined,
+        })
+        continue
+      }
+      if (type === 'booking') {
+        const label = typeof item.label === 'string' ? item.label : undefined
+        if (!label) continue
+        normalized.push({
+          type: 'booking',
+          label,
+          ctaLabel: typeof item.cta_label === 'string' ? item.cta_label : undefined,
+          instructions: typeof item.instructions === 'string' ? item.instructions : undefined,
+          calendarHint: typeof item.calendar_hint === 'string' ? item.calendar_hint : undefined,
+        })
+        continue
+      }
+      if (type === 'link') {
+        const label = typeof item.label === 'string' ? item.label : undefined
+        const url = typeof item.url === 'string' ? item.url : undefined
+        if (!label || !url) continue
+        normalized.push({
+          type: 'link',
+          label,
+          url,
+          instructions: typeof item.instructions === 'string' ? item.instructions : undefined,
+        })
+        continue
+      }
+      if (type === 'note') {
+        const text = typeof item.text === 'string' ? item.text : undefined
+        if (!text) continue
+        normalized.push({ type: 'note', text })
+        continue
+      }
+      if (type === 'research') {
+        const label = typeof item.label === 'string' ? item.label : undefined
+        if (!label) continue
+        normalized.push({
+          type: 'research',
+          label,
+          defaultQuery: typeof item.default_query === 'string' ? item.default_query : undefined,
+          placeholder: typeof item.placeholder === 'string' ? item.placeholder : undefined,
+          hint: typeof item.hint === 'string' ? item.hint : undefined,
+        })
+      }
+    }
+    return normalized.slice(0, 4)
   }
 
   type Handler = (payload: any) => Promise<ToolResult>
@@ -360,6 +430,55 @@ function createToolHandlers(context: ToolHandlerContext) {
     select_services: handleSelectServices,
     add_service_tasks: handleAddServiceTasks,
     unselect_services: handleUnselectServices,
+    open_housing_search: async ({ prompt }: { prompt?: string }) => {
+      console.info('[voice] open_housing_search', prompt)
+      dispatchUiMessage('Opening housing search results')
+      return { success: true, url: '/housing-search', prompt: prompt ?? null }
+    },
+    run_research: async ({ task_id, query }: { task_id?: string; query?: string }) => {
+      if (!task_id) {
+        return { success: false, message: 'task_id is required.' }
+      }
+      const task = tasksRef.current.find((item) => item.id === task_id)
+      if (!task) {
+        return { success: false, message: 'Task not found.' }
+      }
+      const trimmed = (query ?? '').trim()
+      if (!trimmed) {
+        return { success: false, message: 'A query is required to run research.' }
+      }
+      try {
+        const response = await fetch('/api/research/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taskId: task_id, query: trimmed }),
+        })
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`)
+        }
+        const payload = (await response.json()) as { queryId: string }
+        const researchState = {
+          lastQueryId: payload.queryId,
+          lastQuery: trimmed,
+          status: 'in_progress' as const,
+          updatedAt: new Date().toISOString(),
+        }
+        const updatedTask: TimelineTask = {
+          ...task,
+          researchState,
+        }
+        updateTaskRef(updatedTask)
+        upsertTask(updatedTask)
+        dispatchUiMessage('Research started for the selected task.')
+        return { success: true, queryId: payload.queryId }
+      } catch (error) {
+        console.error('Failed to run research', error)
+        return {
+          success: false,
+          message: error instanceof Error ? error.message : 'Unable to run research.',
+        }
+      }
+    },
     list_tasks: async ({ service, status, limit }: { service?: string; status?: string; limit?: number }) => {
       const tasks = tasksRef.current
       const serviceId = service ? resolveServiceIds([service])[0] : undefined
@@ -383,6 +502,28 @@ function createToolHandlers(context: ToolHandlerContext) {
           timeframe: task.timeframe,
         })),
       }
+    },
+    set_task_actions: async ({ task_id, actions = [] }: { task_id?: string; actions?: unknown }) => {
+      if (!task_id) {
+        return { success: false, message: 'task_id is required.' }
+      }
+      const existing = tasksRef.current.find((item) => item.id === task_id)
+      if (!existing) {
+        return { success: false, message: 'Task not found.' }
+      }
+      const normalized = normalizeTaskActions(Array.isArray(actions) ? actions : [])
+      const updated: TimelineTask = {
+        ...existing,
+        actions: normalized,
+        lastUpdatedAt: new Date().toISOString(),
+      }
+      updateTaskRef(updated)
+      upsertTask(updated)
+      if (normalized.length) {
+        dispatchHighlight({ ids: [task_id], action: 'updated' })
+        dispatchUiMessage(`Updated actions for ${existing.title}`)
+      }
+      return { success: true, actions: normalized.length }
     },
     complete_tasks: async ({ ids = [] }: { ids?: string[] }) => {
       console.info('[voice] complete_tasks', ids)
@@ -529,6 +670,13 @@ function createToolHandlers(context: ToolHandlerContext) {
           checkOut ? { label: 'Check-out', value: checkOut } : null,
           address ? { label: 'Address', value: address } : null,
         ].filter((item): item is NonNullable<typeof item> => Boolean(item)),
+        actions: [
+          {
+            type: 'upload',
+            label: 'Upload booking receipt',
+            instructions: 'Add your confirmation PDF or image so everything is stored together.',
+          },
+        ],
       }
       updateTaskRef(task)
       upsertTask(task)
@@ -568,6 +716,17 @@ function createToolHandlers(context: ToolHandlerContext) {
         if (option.url) extraInfo.push({ label: 'Link', value: option.url, href: option.url })
         if (option.note) extraInfo.push({ label: 'Notes', value: option.note })
 
+        const optionActions: TaskAction[] = []
+        if (option.url) {
+          optionActions.push({ type: 'link', label: 'Open listing', url: option.url })
+        }
+        optionActions.push({
+          type: 'booking',
+          label: 'Schedule a review call',
+          instructions: 'Pick a time to discuss this stay and next steps.',
+          ctaLabel: 'Save time',
+        })
+
         const task: TimelineTask = {
           id: `task-temp_accommodation-option-${slug}-${index}`,
           serviceId: 'temp_accommodation',
@@ -579,6 +738,7 @@ function createToolHandlers(context: ToolHandlerContext) {
           lastUpdatedAt: new Date().toISOString(),
           templateSlug: 'temp_option',
           extraInfo,
+          actions: optionActions,
         }
         created.push(task)
       })
@@ -622,6 +782,7 @@ export interface UseVoiceTimelineResult {
   isConnected: boolean
   error?: string
   messages: VoiceMessage[]
+   events: VoiceEvent[]
   start: () => Promise<void>
   stop: () => void
   toggleMute: () => void
@@ -645,6 +806,7 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
   const [error, setError] = useState<string | undefined>()
   const [messages, setMessages] = useState<VoiceMessage[]>([])
   const [userMessage, setUserMessage] = useState<string | null>(null)
+  const [events, setEvents] = useState<VoiceEvent[]>([])
 
   const peerRef = useRef<RTCPeerConnection | null>(null)
   const dataChannelRef = useRef<RTCDataChannel | null>(null)
@@ -684,6 +846,21 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
     },
     [],
   )
+
+  const recordEvent = useCallback((payload: Record<string, unknown>) => {
+    const event: VoiceEvent = {
+      id:
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `evt-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      timestamp: Date.now(),
+      payload,
+    }
+    setEvents((prev) => {
+      const next = [...prev, event]
+      return next.length > 200 ? next.slice(-200) : next
+    })
+  }, [])
 
   const toolHandlers = useMemo(
     () =>
@@ -894,6 +1071,7 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
     (event: MessageEvent<string>) => {
       try {
         const payload = JSON.parse(event.data)
+        recordEvent(payload as Record<string, unknown>)
         const extractTextFromParts = (parts: unknown): string => {
           if (!Array.isArray(parts)) return ''
           return parts
@@ -1089,11 +1267,19 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
     [appendAssistantMessage, handleFunctionExecution, registerPendingCall, userMessage],
   )
 
-  const sendSessionUpdate = useCallback(() => {
+  const sendSessionUpdate = useCallback(async () => {
     const channel = dataChannelRef.current
     if (!channel) return
 
-    const instructions = SESSION_INSTRUCTIONS
+    let instructions = instructionsDefault
+    try {
+      const dynamicInstructions = await getVoiceSystemPrompt()
+      if (dynamicInstructions && dynamicInstructions.trim()) {
+        instructions = dynamicInstructions.trim()
+      }
+    } catch (error) {
+      console.error('Failed to load voice system prompt', error)
+    }
 
     const tools = [
       {
@@ -1237,6 +1423,32 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
       },
       {
         type: 'function',
+        name: 'open_housing_search',
+        description: 'Open the housing search surface with an optional prompt summarizing criteria',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            prompt: { type: 'string' },
+          },
+        },
+      },
+      {
+        type: 'function',
+        name: 'run_research',
+        description: 'Start a web research query for a timeline task',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            task_id: { type: 'string' },
+            query: { type: 'string' },
+          },
+          required: ['task_id', 'query'],
+        },
+      },
+      {
+        type: 'function',
         name: 'unselect_service',
         description: 'Disable a service',
         parameters: {
@@ -1262,6 +1474,26 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
             status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] },
             limit: { type: 'number', minimum: 1, maximum: 25 },
           },
+        },
+      },
+      {
+        type: 'function',
+        name: 'set_task_actions',
+        description: 'Attach interactive actions (upload, booking, links) to a specific task card',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            task_id: { type: 'string' },
+            actions: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: true,
+              },
+            },
+          },
+          required: ['task_id'],
         },
       },
       {
@@ -1369,6 +1601,7 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
         },
       }),
     )
+    channel.send(JSON.stringify({ type: 'response.create' }))
   }, [])
 
   const start = useCallback(async () => {
@@ -1413,7 +1646,7 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
       dataChannel.onopen = () => {
         setConnected(true)
         setPhase('listening')
-        sendSessionUpdate()
+        void sendSessionUpdate()
         dispatchUiMessage('Voice session connected')
       }
       dataChannel.onclose = () => {
@@ -1464,6 +1697,7 @@ export function useVoiceTimeline(args: UseVoiceTimelineArgs): UseVoiceTimelineRe
     isConnected,
     error,
     messages,
+    events,
     start,
     stop,
     toggleMute,

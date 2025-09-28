@@ -27,6 +27,45 @@ export interface ServiceDefinition {
   accentColor: string
 }
 
+export type TaskAction =
+  | {
+      type: 'upload'
+      label: string
+      accept?: string
+      instructions?: string
+    }
+  | {
+      type: 'booking'
+      label: string
+      ctaLabel?: string
+      instructions?: string
+      calendarHint?: string
+    }
+  | {
+      type: 'link'
+      label: string
+      url: string
+      instructions?: string
+    }
+  | {
+      type: 'note'
+      text: string
+    }
+  | {
+      type: 'research'
+      label: string
+      defaultQuery?: string
+      placeholder?: string
+      hint?: string
+    }
+
+export interface TimelineResearchState {
+  lastQueryId?: string
+  lastQuery?: string
+  status?: 'idle' | 'pending' | 'in_progress' | 'complete' | 'failed'
+  updatedAt?: string
+}
+
 export interface TimelineTask {
   id: string
   serviceId: ServiceId
@@ -42,6 +81,8 @@ export interface TimelineTask {
     value: string
     href?: string
   }>
+  actions?: TaskAction[]
+  researchState?: TimelineResearchState
 }
 
 export interface CategoriesConfirmedDetail {
