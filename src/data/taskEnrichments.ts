@@ -155,18 +155,27 @@ const ENRICHMENTS: TaskEnrichment[] = [
 ]
 
 function matches(task: TimelineTask, enrichment: TaskEnrichment) {
+  // Exact ID match has highest priority
   if (enrichment.id && enrichment.id === task.id) {
     return true
   }
+
+  // Template slug match has second priority and overrides serviceId
   if (enrichment.templateSlug && enrichment.templateSlug === task.templateSlug) {
     return true
   }
+
+  // Title match has third priority
   if (enrichment.title && enrichment.title === task.title) {
     return true
   }
-  if (enrichment.serviceId && enrichment.serviceId === task.serviceId) {
+
+  // ServiceId match only if no templateSlug is specified in enrichment
+  // This prevents broad serviceId matches from overriding specific templateSlug matches
+  if (enrichment.serviceId && !enrichment.templateSlug && enrichment.serviceId === task.serviceId) {
     return true
   }
+
   return false
 }
 
